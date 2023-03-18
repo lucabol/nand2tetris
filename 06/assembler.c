@@ -16,7 +16,77 @@
 #define OS_STDC_IMPL
 #include "ulib/OsStdc.h"
 
+#define HASH_IMPL
+#include "ulib/Hash.h"
+
+/* SYMBOL TABLE */
+#define EXP 10
+#define LOADFACTOR 60
+#define MAXLEN (1 << EXP) * LOADFACTOR / 100
+#define HashInit { {0}, 0 }
+
+typedef struct {
+  Span symbol;
+  int16_t location;
+} Entry;
+
+typedef struct {
+  Entry entries[1<<EXP];
+  int32_t len;
+} SymbolTable;
+
+// Returns false if too many items in the hashtable
+bool STAdd(SymbolTable* st, Span symbol, int16_t location) {
+  assert(st);
+  assert(SpanValid(symbol));
+
+  if(MAXLEN < st->len) return false; // OOM
+
+  uint64_t h = HashString(symbol.ptr, symbol.len);
+  for(int32_t i = h;;) {
+    i = HashLookup(h, EXP, i);
+    Entry* e = &st->entries[i];
+    // Insert it either if it already exist (overwrite) or if the cell is empty (0)
+    if(SpanEqual(symbol, e->symbol) || e->symbol.ptr == 0) {
+      st->len += e->symbol.ptr == 0;
+      // Last wins, likely wrong. More likely should err on duplicated symbol.
+      *e = (Entry) { symbol, location };
+      return true;
+    }
+  }
+}
+
+// Returns -1 if symbol not present
+int16_t STGet(SymbolTable* st, Span symbol) {
+  assert(st);
+  assert(SpanValid(symbol));
+
+  uint64_t h = HashString(symbol.ptr, symbol.len);
+  for(int32_t i = h;;) {
+    i = HashLookup(h, EXP, i);
+    Entry* e = &st->entries[i];
+
+    if(e->symbol.ptr == 0) return -1;
+
+    if(SpanEqual(symbol, e->symbol)) {
+      return e->location;
+    }
+  }
+}
+
+SymbolTable* STInit() {
+  static SymbolTable st = HashInit;
+
+  #define H(_i) { bool __r = STAdd(&st, S("R" #_i),_i); assert(__r); }
+  H(0);H(1);H(2);H(3);H(4);H(5);H(6);H(7);H(8);H(9);H(10);H(11);H(12);H(13);H(14);H(15);
+
+  #define K(_n,_s) {bool __r = STAdd(&st, S(#_n),_s); assert(__r); }
+  K(SP,0);K(LCL,1);K(ARG,2);K(THIS,3);K(THAT,4);K(SCREEN,1638);K(KBD,24576);
+
+  return &st;
+}
 /* PARSE */
+
 typedef enum { AInstr, CInstr, Label, Comment, Empty,Error } TokenType;
 
 // Not bothering with a union inside a struct as this is all going to be inlined anyhow with no loss of perf/mem
@@ -28,12 +98,17 @@ typedef struct {
   Span jump;
 } Token;
 
+// As '/' is not a valid char in an instruction ...
+Span removeLineComment(Span line) {
+  return SpanCut(line, '/').head;
+}
 
 // *WARNING* The return value is valid until the next call to parseLine.
 Token parseLine(Span line) {
   SpanValid(line);
 
-  Span s     = SpanTrim(line);
+  Span nocom = removeLineComment(line);
+  Span s     = SpanTrim(nocom);
   size_t len = s.len;
 
   // Empty line
@@ -75,6 +150,7 @@ Token parseLine(Span line) {
 }
 
 /* CODE */
+
 // This table is known at compile time. Implemented as an X macro expanded to a series of if statements.
 #define COMP \
   X(0  ,101010) \
@@ -171,10 +247,20 @@ char* SpanToStr1K(Span s) {
   return tmp;
 }
 
-Span tokenToBinary(Token t) {
+Span tokenToBinary(SymbolTable* st, Token t) {
   if(t.type == AInstr) {
-    Span s = S("0");
-    int16_t value = atoi(SpanToStr1K(t.value));
+    int16_t value;
+
+    if(isdigit(t.value.ptr[0])) {
+      value = atoi(SpanToStr1K(t.value));
+    } else {
+      value = STGet(st, t.value); 
+      if(value < 0) {
+        fprintf(stderr, "Symbol not in the symbol table");
+        exit(1);
+      }
+    }
+
     return decToBinary(value);
   }
   if(t.type == CInstr) {
@@ -197,10 +283,55 @@ Span tokenToBinary(Token t) {
   return S("");
 }
 
+
+SymbolTable* firstPass(SymbolTable* st, Span s) {
+  
+  int16_t line = 0;
+
+  while(true) {
+    SpanPair sp = SpanCut(s, '\n');
+    if(sp.head.len == 0) break;
+    s = sp.tail;
+
+    Token token = parseLine(sp.head);
+
+    if(token.type == Label) {
+        STAdd(st, token.value, line);
+    } 
+
+    if(token.type == AInstr || token.type == CInstr)
+      line++;
+  }
+
+  return st;
+}
+
+SpanResult secondPass(SymbolTable* st, Span s, Buffer* bufout) {
+
+  while(true) {
+    SpanPair sp = SpanCut(s, '\n');
+    if(sp.head.len == 0) break;
+    s = sp.tail;
+
+    Token token = parseLine(sp.head);
+    Span binary = tokenToBinary(st, token);
+    if(binary.len == 0) continue; // jumps over empty lines and comments
+    
+    SpanResult sres = BufferCopy(binary, bufout);
+    if(sres.error) {
+      return SPANERR("Buffer too small.");
+    }
+
+    if(!TryBufferPushByte(bufout, '\n')) {
+      return SPANERR("Buffer too small.");
+    }
+  }
+  return (SpanResult){BufferToSpan(bufout)};
+}
+
 void test(void);
 
 int themain(int argc, char** argv) {
-  //#define TEST
   #ifdef TEST
     test();
     return 0;
@@ -210,6 +341,7 @@ int themain(int argc, char** argv) {
     fprintf(stderr, "Usage: %s <asm_file>\n", argv[0]);
     return -1;
   }
+
   #define MAXFILESIZE 1<<20
   static Byte filein [MAXFILESIZE];
   static Byte fileout[MAXFILESIZE];
@@ -217,60 +349,33 @@ int themain(int argc, char** argv) {
   Buffer bufin  = BufferInit(filein , MAXFILESIZE);
   Buffer bufout = BufferInit(fileout, MAXFILESIZE);
 
+  // Load asm file
   SpanResult sr = OsSlurp(argv[1], MAXFILESIZE, &bufin);
   if(sr.error) {
     fprintf(stderr, "Error reading file %s.\n%s\n", argv[1], sr.error);
     return -1;
   }
 
-  Span s      = sr.data;
-  Size linenr = 1;
+  // Load the symbol table
+  SymbolTable* st = STInit();
+  st = firstPass(st, sr.data);
 
-  while(true) {
-    SpanPair sp = SpanCut(s, '\n');
-    if(sp.head.len == 0) break;
-    s = sp.tail;
-
-    Token token = parseLine(sp.head);
-    Span binary = tokenToBinary(token);
-    if(binary.len == 0) continue; // jumps over empty lines and comments
-    
-    SpanResult sres = BufferCopy(binary, &bufout);
-    if(sres.error) {
-      fprintf(stderr, "Error: %s\n", sres.error);
-      return -1;
-    }
-
-    if(!TryBufferPushByte(&bufout, '\n')) {
-      fprintf(stderr, "Buffer too small for the given file");
-      return -1;
-    }
-
-    linenr++;
+  // Produce binary code
+  SpanResult sResult      = secondPass(st, sr.data, &bufout);
+  if(sResult.error) {
+    fprintf(stderr, "ERROR: %s\n", sResult.error);
+    return -1;
   }
+  Span s = sResult.data;
 
-  if(BufferAvail(&bufout) < 20) {
-      fprintf(stderr, "Buffer too small for the given file");
-      return -1;
-  }
-
-  /*
-  // Post program an infinite loop
-  BufferCopy(decToBinary(linenr), &bufout);
-  BufferPushByte(&bufout, '\n');
-  BufferCopy(tokenToBinary(parseLine(S("0;JMP"))), &bufout);
-  BufferPushByte(&bufout, '\n');
-
-  Span sout = BufferToSpan(&bufout);
-  */
-
+  // Save into output file
   Byte newName[1024];
   Buffer nbuf = BufferInit(newName, 1024);
   BufferCopy(SpanFromString(argv[1]), &nbuf);
   BufferCopy(S(".hack"), &nbuf);
   BufferPushByte(&nbuf, 0);
 
-  char* writeError = OsFlash((char*)BufferToSpan(&nbuf).ptr, BufferToSpan(&bufout));
+  char* writeError = OsFlash((char*)BufferToSpan(&nbuf).ptr, s);
   if(writeError) {
     fprintf(stderr, "%s\n", writeError);
     return -1;
@@ -381,9 +486,11 @@ void test() {
   TDB(3,0000000000000011);
   TDB(1024,0000010000000000);
 
+  SymbolTable* tst = STInit();
+
   #define TTOK(_inst,_bin) { \
     Token tok = parseLine(S(#_inst)); \
-    Span  bin = tokenToBinary(tok); \
+    Span  bin = tokenToBinary(tst, tok); \
     assert(SpanEqual(bin,S(#_bin))); \
   }
   // The Add program line by line
@@ -393,5 +500,32 @@ void test() {
   TTOK(D=D+A,1110000010010000);
   TTOK(@0   ,0000000000000000);
   TTOK(M=D  ,1110001100001000);
+
+  SymbolTable st = HashInit;
+
+  assert(STAdd(&st, S("var"), 0));
+  assert(STAdd(&st, S("var"), 1));
+  assert(STAdd(&st, S("bob"), 2));
+  assert(st.len == 2);
+
+  assert(STGet(&st, S("var")) == 1);
+  assert(STGet(&st, S("bob")) == 2);
+  assert(STGet(&st, S("nonexistent")) == -1);
+
+  // Test string that collide
+  assert(STAdd(&st, S("altarage"), 0));
+  assert(STAdd(&st, S("zinke"), 1));
+  assert(STGet(&st, S("altarage")) == 0);
+  assert(STGet(&st, S("zinke")) == 1);
+  assert(st.len == 4);
+
+  assert(STAdd(&st, S("declinate"), 0));
+  assert(STAdd(&st, S("macallums"), 1));
+  assert(STGet(&st, S("declinate")) == 0);
+  assert(STGet(&st, S("macallums")) == 1);
+  assert(st.len == 6);
+
+  SymbolTable* stab = STInit();
+  assert(stab->len == 23);
 }
 

@@ -1,27 +1,40 @@
 #!/bin/bash
 
 function check {    # Diff 2 assemblers
+  assemble
   diff -s ./add/Add.hack ./add/Add.asm.hack
   diff -s ./max/MaxL.hack ./max/MaxL.asm.hack
   diff -s ./rect/RectL.hack ./rect/RectL.asm.hack
   diff -s ./pong/PongL.hack ./pong/PongL.asm.hack
+
+  diff -s ./max/Max.hack ./max/Max.asm.hack
 }
 
-function build {    # Build stuff
-  clang -g assembler.c -o assembler
+function buildg {    # Build debug
+  gcc -g assembler.c -o assembler
 }
 
+function test {      # Run the tests
+  musl-clang -DTEST -g -static assembler.c -o assembler
+  ./assembler
+}
+function buildf {    # Build fast
+  musl-clang -Ofast -flto -static assembler.c -o assembler
+  musl-gcc -Ofast -fwhole-program -static assembler.c -o assembler_mg
+}
 function assemble {    # assemble
-  build
+  buildf
   ./assembler add/Add.asm
   ./assembler max/MaxL.asm
   ./assembler rect/RectL.asm
   ./assembler pong/PongL.asm
+  ./assembler max/Max.asm
+
   ../../tools/Assembler.sh add/Add.asm
   ../../tools/Assembler.sh max/MaxL.asm
   ../../tools/Assembler.sh rect/RectL.asm
   ../../tools/Assembler.sh pong/PongL.asm
-
+  ../../tools/Assembler.sh max/Max.asm
 }
 
 function help {     # Prints help
