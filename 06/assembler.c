@@ -2,8 +2,8 @@
 #include <stdbool.h>
 #include <stdlib.h>
 
-#include <assert.h> // for assert
-#include <string.h> // for strcmp
+#include <assert.h>
+#include <string.h>
 #include <stdio.h>
 #include <ctype.h>
 
@@ -20,10 +20,13 @@
 #include "ulib/Hash.h"
 
 /* SYMBOL TABLE */
-#define EXP 10
+#define EXP 12
 #define LOADFACTOR 60
 #define MAXLEN (1 << EXP) * LOADFACTOR / 100
-#define HashInit { {0}, 0 }
+
+// GCC bug with the syntax below ...
+#pragma GCC diagnostic ignored "-Wmissing-braces"
+#define HashInit { {0}, 0, 16 }
 
 typedef struct {
   Span symbol;
@@ -33,6 +36,7 @@ typedef struct {
 typedef struct {
   Entry entries[1<<EXP];
   int32_t len;
+  int16_t varindex;
 } SymbolTable;
 
 // Returns false if too many items in the hashtable
@@ -81,7 +85,7 @@ SymbolTable* STInit() {
   H(0);H(1);H(2);H(3);H(4);H(5);H(6);H(7);H(8);H(9);H(10);H(11);H(12);H(13);H(14);H(15);
 
   #define K(_n,_s) {bool __r = STAdd(&st, S(#_n),_s); assert(__r); }
-  K(SP,0);K(LCL,1);K(ARG,2);K(THIS,3);K(THAT,4);K(SCREEN,1638);K(KBD,24576);
+  K(SP,0);K(LCL,1);K(ARG,2);K(THIS,3);K(THAT,4);K(SCREEN,16384);K(KBD,24576);
 
   return &st;
 }
@@ -109,30 +113,28 @@ Token parseLine(Span line) {
 
   Span nocom = removeLineComment(line);
   Span s     = SpanTrim(nocom);
-  size_t len = s.len;
+  Size len = s.len;
 
   // Empty line
-  if(len == 0) return (Token) {Empty, s};
+  if(len == 0) return (Token) {Empty, s, SPAN0, SPAN0, SPAN0};
 
   // Comment
-  if(len > 2 && (s.ptr[0] == '/' && s.ptr[1] == '/')) return (Token) {Comment, SpanSub(s, 2, len)};
+  if(len > 2 && (s.ptr[0] == '/' && s.ptr[1] == '/')) return (Token) {Comment, SpanSub(s, 2, len), SPAN0, SPAN0, SPAN0};
 
   // Label
   if(s.ptr[0] == '(' && s.ptr[len - 1] == ')') {
-    return (Token) {Label, SpanSub(s, 1, len - 1)};
+    return (Token) {Label, SpanSub(s, 1, len - 1), SPAN0, SPAN0, SPAN0};
   }
 
   // A Instruction
-  if(s.ptr[0] == '@') return (Token) {AInstr, SpanSub(s, 1, len)};
+  if(s.ptr[0] == '@') return (Token) {AInstr, SpanSub(s, 1, len), SPAN0, SPAN0, SPAN0};
 
   // C Instruction
-  size_t eqpos   = -1;
-  size_t semipos = -1;
-  Byte*  ptr     = s.ptr;
-  Byte   c       = 0;
+  Size eqpos   = -1;
+  Size semipos = -1;
 
   // Look for separator characters
-  for(int i = 0; i < len; i++) {
+  for(Size i = 0; i < len; i++) {
     Byte c = s.ptr[i];
 
     if(c == '=') eqpos   = i;
@@ -256,8 +258,12 @@ Span tokenToBinary(SymbolTable* st, Token t) {
     } else {
       value = STGet(st, t.value); 
       if(value < 0) {
-        fprintf(stderr, "Symbol not in the symbol table");
-        exit(1);
+        // If it's not in the symbol table, it is a variable
+        value = st->varindex;
+        bool success = STAdd(st, t.value, value);
+        assert(success);
+
+        st->varindex += 1;
       }
     }
 
@@ -326,7 +332,7 @@ SpanResult secondPass(SymbolTable* st, Span s, Buffer* bufout) {
       return SPANERR("Buffer too small.");
     }
   }
-  return (SpanResult){BufferToSpan(bufout)};
+  return (SpanResult){BufferToSpan(bufout), 0};
 }
 
 void test(void);

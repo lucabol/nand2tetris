@@ -1,5 +1,7 @@
 #!/bin/bash
 
+CFLAGS='-Wall -Wextra -Wpedantic -std=c99'
+
 function check {    # Diff 2 assemblers
   assemble
   diff -s ./add/Add.hack ./add/Add.asm.hack
@@ -8,19 +10,21 @@ function check {    # Diff 2 assemblers
   diff -s ./pong/PongL.hack ./pong/PongL.asm.hack
 
   diff -s ./max/Max.hack ./max/Max.asm.hack
+  diff -s ./rect/Rect.hack ./rect/Rect.asm.hack
+  diff -s ./pong/Pong.hack ./pong/Pong.asm.hack
 }
 
 function buildg {    # Build debug
-  gcc -g assembler.c -o assembler
+  gcc $CFLAGS -g assembler.c -o assembler
 }
 
 function test {      # Run the tests
-  musl-clang -DTEST -g -static assembler.c -o assembler
+  musl-clang $CFLAGS -DTEST -g -static assembler.c -o assembler
   ./assembler
 }
 function buildf {    # Build fast
-  musl-clang -Ofast -flto -static assembler.c -o assembler
-  musl-gcc -Ofast -fwhole-program -static assembler.c -o assembler_mg
+  musl-clang $CFLAGS  -Ofast -flto -static assembler.c -o assembler
+  musl-gcc $CFLAGS -Ofast -fwhole-program -static assembler.c -o assembler_mg
 }
 function assemble {    # assemble
   buildf
@@ -28,13 +32,19 @@ function assemble {    # assemble
   ./assembler max/MaxL.asm
   ./assembler rect/RectL.asm
   ./assembler pong/PongL.asm
+
   ./assembler max/Max.asm
+  ./assembler rect/Rect.asm
+  ./assembler pong/Pong.asm
 
   ../../tools/Assembler.sh add/Add.asm
   ../../tools/Assembler.sh max/MaxL.asm
   ../../tools/Assembler.sh rect/RectL.asm
   ../../tools/Assembler.sh pong/PongL.asm
+
   ../../tools/Assembler.sh max/Max.asm
+  ../../tools/Assembler.sh rect/Rect.asm
+  ../../tools/Assembler.sh pong/Pong.asm
 }
 
 function help {     # Prints help
