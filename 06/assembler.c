@@ -91,7 +91,7 @@ SymbolTable* STInit() {
 }
 /* PARSE */
 
-typedef enum { AInstr, CInstr, Label, Comment, Empty,Error } TokenType;
+typedef enum { AInstr, CInstr, Label, Empty,Error } TokenType;
 
 // Not bothering with a union inside a struct as this is all going to be inlined anyhow with no loss of perf/mem
 typedef struct {
@@ -117,9 +117,6 @@ Token parseLine(Span line) {
 
   // Empty line
   if(len == 0) return (Token) {Empty, s, SPAN0, SPAN0, SPAN0};
-
-  // Comment
-  if(len > 2 && (s.ptr[0] == '/' && s.ptr[1] == '/')) return (Token) {Comment, SpanSub(s, 2, len), SPAN0, SPAN0, SPAN0};
 
   // Label
   if(s.ptr[0] == '(' && s.ptr[len - 1] == ')') {
@@ -284,8 +281,6 @@ Span tokenToBinary(SymbolTable* st, Token t) {
     memcpy(&tmp[13],jump.ptr,3);
     return SPAN(tmp, 16);
   }
-  // TODO: LABELS
-  // Comments and empty lines are eaten
   return S("");
 }
 
@@ -321,7 +316,7 @@ SpanResult secondPass(SymbolTable* st, Span s, Buffer* bufout) {
 
     Token token = parseLine(sp.head);
     Span binary = tokenToBinary(st, token);
-    if(binary.len == 0) continue; // jumps over empty lines and comments
+    if(binary.len == 0) continue; // jumps over empty lines
     
     SpanResult sres = BufferCopy(binary, bufout);
     if(sres.error) {
@@ -410,14 +405,6 @@ void test() {
   }
   TAI(123);
   TAI(bob);
-
-  #define TAC(__t) { \
-    Token r = parseLine(S("//" #__t)); \
-    assert(SpanEqual(S(#__t ), r.value)); \
-    assert(r.type == Comment); \
-  }
-  TAC(123);
-  TAC(bob);
 
   #define TAL(__t) { \
     Token r = parseLine(S("(" #__t ")")); \
