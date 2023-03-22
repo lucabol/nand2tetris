@@ -177,8 +177,7 @@ SpanResult fixedMap(Span segment) {
     X(this, THIS) \
     X(that, THAT) \
     X(pointer, THIS) \
-    X(argument, ARG) \
-    X(temp, TEMP)
+    X(argument, ARG) 
 
   #define X(_i,_j) if(SpanEqual(segment, S(#_i))) return SPANRESULT(S(#_j));
   SEGS 
@@ -209,6 +208,11 @@ char* SetAddr(Span segment, Span idx, Buffer* bufout) {
     WriteStr(".");
     WriteSpan(idx);
     return NULL;
+  } else if(SpanEqual(segment, S("temp"))) {
+    WriteA(S("5")); // Bug?? TEMP not defined?
+    WriteStrNL("D=A");
+    WriteA(idx);
+    WriteStrNL("A=D+A");
   } else {
     return "Not a known segment type.";
   }
@@ -230,27 +234,6 @@ Handle(push) {
 
 }
 
-Handle(pop) {
-
-  char* err = SetAddr(t.arg1, t.arg2, bufout);
-  if(err) return err;
-
-  // TODO: think of how you can remove the tempoarary var
-  WriteStrNL("@TEMP");
-  WriteStrNL("M=A");
-
-  WriteStrNL("@SP");
-  WriteStrNL("M=M-1");
-  WriteStrNL("D=M");
-
-
-  WriteStrNL("@TEMP");
-  WriteStrNL("A=M");
-  WriteStrNL("M=D");
-
-  return NULL;
-}
-
 #define popd \
   WriteStrNL("@SP"); \
   WriteStrNL("M=M-1"); \
@@ -268,6 +251,30 @@ Handle(pop) {
   WriteStrNL("M=D"); \
   WriteStrNL("@SP"); \
   WriteStrNL("M=M+1");
+
+Handle(pop) {
+
+  // Store calculated address in D
+  char* err = SetAddr(t.arg1, t.arg2, bufout);
+  if(err) return err;
+  WriteStrNL("D=A");
+
+  // Store D in TEMP
+  WriteStrNL("@TEMP");
+  WriteStrNL("M=D");
+
+  // Pop D
+  popd
+
+  // Get calculated address in A without touching D
+  WriteStrNL("@TEMP");
+  WriteStrNL("A=M");
+
+  // Finally store D in the calculated address
+  WriteStrNL("M=D");
+
+  return NULL;
+}
 
 static inline char* arith(char* arith, Buffer* bufout) {
   popd
