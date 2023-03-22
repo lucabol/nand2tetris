@@ -90,7 +90,14 @@ SymbolTable* STInit() {
   X(push) \
   X(pop) \
   X(add) \
-  X(sub)
+  X(sub) \
+  X(eq) \
+  X(gt) \
+  X(lt) \
+  X(neg) \
+  X(not) \
+  X(and) \
+  X(or) 
 
 typedef enum {
 #define X(_n) _n,
@@ -159,9 +166,10 @@ SymbolTable* firstPass(SymbolTable* st, Span s) {
 #define Handle(_n) char* _n##f(SymbolTable* st, Token t, Buffer* bufout)
 
 #define WriteSpan(_k) if(BufferCopy(_k,bufout).error) return "Writing buffer too small"
-#define WriteStr(_s) WriteSpan(S(_s))
+#define WriteStr(_s) WriteSpan(SpanFromString(_s))
 #define WriteStrNL(_s) WriteStr((_s));WriteStr("\n")
 #define WriteA(_i) WriteStr("@");WriteSpan((_i));WriteStr("\n")
+#define WriteLabel(_i) WriteStr("(");WriteSpan((_i));WriteStr(")\n")
 
 SpanResult fixedMap(Span segment) {
   #define SEGS \
@@ -191,10 +199,10 @@ char* SetAddr(Span segment, Span idx, Buffer* bufout) {
     WriteStrNL("A=D+A");
     return NULL;
   } else if(SpanEqual(segment, S("constant"))) {
-    WriteA(S("TEMP"));
-    WriteStrNL("D=M");
     WriteA(idx);
-    WriteStrNL("A=D+A");
+    WriteStrNL("D=A");
+    WriteA(S("TEMP"));
+    WriteStrNL("M=D");
     return NULL;
   } else if(SpanEqual(segment, S("static"))) {
     WriteStr(VmFileName);
@@ -209,14 +217,14 @@ Handle(push) {
 
   char* err = SetAddr(t.arg1, t.arg2, bufout);
   if(err) return err;
-  WriteStr("D=M");
+  WriteStrNL("D=M");
 
-  WriteStr("@SP");
-  WriteStr("A=M");
-  WriteStr("M=D");
+  WriteStrNL("@SP");
+  WriteStrNL("A=M");
+  WriteStrNL("M=D");
 
-  WriteStr("@SP");
-  WriteStr("M=M+1");
+  WriteStrNL("@SP");
+  WriteStrNL("M=M+1");
   
   return NULL;
 
@@ -228,61 +236,114 @@ Handle(pop) {
   if(err) return err;
 
   // TODO: think of how you can remove the tempoarary var
-  WriteStr("@TEMP");
-  WriteStr("M=A");
+  WriteStrNL("@TEMP");
+  WriteStrNL("M=A");
 
-  WriteStr("@SP");
-  WriteStr("M=M-1");
-  WriteStr("D=M");
+  WriteStrNL("@SP");
+  WriteStrNL("M=M-1");
+  WriteStrNL("D=M");
 
 
-  WriteStr("@TEMP");
-  WriteStr("A=M");
-  WriteStr("M=D");
+  WriteStrNL("@TEMP");
+  WriteStrNL("A=M");
+  WriteStrNL("M=D");
 
   return NULL;
 }
 
 #define popd \
-  WriteStr("@SP"); \
-  WriteStr("M=M-1"); \
-  WriteStr("A=M"); \
-  WriteStr("D=M");
+  WriteStrNL("@SP"); \
+  WriteStrNL("M=M-1"); \
+  WriteStrNL("A=M"); \
+  WriteStrNL("D=M");
 
 #define popa \
-  WriteStr("@SP"); \
-  WriteStr("M=M-1"); \
-  WriteStr("A=M");
+  WriteStrNL("@SP"); \
+  WriteStrNL("M=M-1"); \
+  WriteStrNL("A=M"); \
 
 #define pushd \
-  WriteStr("@SP"); \
-  WriteStr("A=M"); \
-  WriteStr("M=D"); \
-  WriteStr("@SP"); \
-  WriteStr("M=M+1");
+  WriteStrNL("@SP"); \
+  WriteStrNL("A=M"); \
+  WriteStrNL("M=D"); \
+  WriteStrNL("@SP"); \
+  WriteStrNL("M=M+1");
 
-Handle(add) {
-
+static inline char* arith(char* arith, Buffer* bufout) {
   popd
   popa
 
-  WriteStr("D=D+M");
+  WriteStrNL(arith);
 
   pushd
 
   return NULL;
 }
 
-Handle(sub) {
-  popd
-  popa
+Handle(add) { return arith("D=M+D", bufout);}
+Handle(sub) { return arith("D=M-D", bufout);}
+Handle(and) { return arith("D=M&D", bufout);}
+Handle(or)  { return arith("D=M|D", bufout);}
 
-  WriteStr("D=D-M");
+static inline char* unary(char* arith, Buffer* bufout) {
+  popd
+
+  WriteStrNL(arith);
 
   pushd
 
   return NULL;
 }
+Handle(neg) { return unary("D=-D", bufout);} 
+Handle(not) { return unary("D=!D", bufout);} 
+
+// *CAREFUL* not thread safe
+Span nextLabel(int i) {
+  static int x = 0;
+  static char ar[1000];
+
+  char* label = &ar[i * 50];
+  sprintf(label, "LABEL%d", x);
+  x += 1;
+  return SpanFromString(label);
+}
+
+static inline char* comparison(char* dJump, Buffer* bufout) {
+
+  popd
+  popa
+  WriteStrNL("A=M");
+
+  Span l1 = nextLabel(0);
+  Span l2 = nextLabel(1);
+  Span l3 = nextLabel(2);
+
+  WriteStrNL("D=D-A");
+  WriteA(l1);
+  WriteStrNL(dJump);
+  WriteA(l2);
+  WriteStrNL("0;JMP");
+
+  WriteLabel(l1);
+  WriteStrNL("D=-1");
+  WriteA(l3);
+  WriteStrNL("0;JMP");
+
+
+  WriteLabel(l2);
+  WriteStrNL("D=0");
+  WriteA(l3);
+  WriteStrNL("0;JMP");
+
+  WriteLabel(l3);
+  pushd
+
+  return NULL;
+}
+Handle(eq) { return comparison("D;JEQ", bufout); }
+Handle(lt) { return comparison("D;JGT", bufout); }
+Handle(gt) { return comparison("D;JLT", bufout); }
+
 #undef Write
 #undef Handle
 
@@ -297,8 +358,11 @@ char* tokenToOps(SymbolTable* st, Token t, Buffer* bufout) {
   }
   return "Shouldn't get here as every branch returns.";
 }
+
 SpanResult secondPass(SymbolTable* st, Span s, Buffer* bufout) {
   (void) st;
+#define Write(_k) if(BufferCopy(_k,bufout).error) return SPANERR("Writing buffer too small")
+
   while(true) {
     SpanPair sp = SpanCut(s, '\n');
     Span line = sp.head;
@@ -306,10 +370,7 @@ SpanResult secondPass(SymbolTable* st, Span s, Buffer* bufout) {
     if(line.len == 0) break;
     s = sp.tail;
 
-
-#define Write(_k) if(BufferCopy(_k,bufout).error) return SPANERR("Writing buffer too small")
-
-    Write(S("// "));
+    Write(S("\n// "));
     Write(line);
     Write(S("\n"));
 
@@ -318,12 +379,16 @@ SpanResult secondPass(SymbolTable* st, Span s, Buffer* bufout) {
     if(error) {
       return SPANERR(error); 
     }
-    
-    return SPANRESULT(BufferToSpan(bufout));
-      
-#undef Write
-}
+  }
 
+  Write(S("(End)"));
+  Write(S("\n"));
+  Write(S("@End"));
+  Write(S("\n"));
+  Write(S("0;JMP"));
+  Write(S("\n"));
+
+#undef Write
   return (SpanResult){BufferToSpan(bufout), 0};
 }
 
@@ -361,7 +426,7 @@ int themain(int argc, char** argv) {
   st = firstPass(st, sr.data);
 
   // Produce binary code
-  SpanResult sResult      = secondPass(st, sr.data, &bufout);
+  SpanResult sResult = secondPass(st, sr.data, &bufout);
   if(sResult.error) {
     fprintf(stderr, "ERROR: %s\n", sResult.error);
     return -1;
@@ -371,8 +436,11 @@ int themain(int argc, char** argv) {
   // Save into output file
   Byte newName[1024];
   Buffer nbuf = BufferInit(newName, 1024);
-  BufferCopy(SpanFromString(VmFileName), &nbuf);
-  BufferCopy(S(".hack"), &nbuf);
+  Span oldName = SpanFromString(VmFileName);
+  Span baseName = SpanCut(oldName, '.').head;
+
+  BufferCopy(baseName, &nbuf);
+  BufferCopy(S(".asm"), &nbuf);
   BufferPushByte(&nbuf, 0);
 
   char* writeError = OsFlash((char*)BufferToSpan(&nbuf).ptr, s);

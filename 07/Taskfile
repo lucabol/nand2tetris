@@ -5,15 +5,22 @@ CFLAGS='-Wall -Wextra -Wpedantic -std=c99'
 function buildg {    # Build debug
   gcc $CFLAGS -g vm.c -o vm
 }
+function buildf {    # Build fast
+  musl-clang $CFLAGS  -Ofast -flto -static vm.c -o vm
+  musl-gcc $CFLAGS -Ofast -fwhole-program -static vm.c -o vm_mg
+}
 
 function test {    # Run tests
   gcc -DTEST $CFLAGS -g vm.c -o vm
   ./vm
 }
 
-function buildf {    # Build fast
-  musl-clang $CFLAGS  -Ofast -flto -static vm.c -o vm
-  musl-gcc $CFLAGS -Ofast -fwhole-program -static vm.c -o vm_mg
+function check {
+  gcc $CFLAGS -g vm.c -o vm
+  ./vm StackArithmetic/SimpleAdd/SimpleAdd.vm
+  ./vm MemoryAccess/BasicTest/BasicTest.vm
+  ./vm StackArithmetic/StackTest/StackTest.vm
+
 }
 
 function help {     # Prints help
