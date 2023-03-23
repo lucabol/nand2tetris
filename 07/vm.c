@@ -151,6 +151,7 @@ Token parseLine(Span line) {
 SymbolTable* firstPass(SymbolTable* st, Span s) {
   (void)st;
   int16_t line = 0;
+  (void)line;
 
   while(true) {
     SpanPair sp = SpanCut(s, '\n');
@@ -158,6 +159,7 @@ SymbolTable* firstPass(SymbolTable* st, Span s) {
     s = sp.tail;
 
     Token token = parseLine(sp.head);
+    (void) token;
   }
 
   return st;
@@ -195,20 +197,17 @@ char* SetAddr(Span segment, Span idx, Buffer* bufout) {
     WriteStrNL("D=M");
     WriteA(idx);
     WriteStrNL("A=D+A");
-    return NULL;
   } else if(SpanEqual(segment, S("constant"))) {
     WriteA(idx);
     WriteStrNL("D=A");
     WriteA(S("5"));
     WriteStrNL("M=D");
-    return NULL;
   } else if(SpanEqual(segment, S("static"))) {
     WriteStr("@");
     WriteStr(VmFileName);
     WriteStr(".");
     WriteSpan(idx);
     WriteStr("\n");
-    return NULL;
   } else if(SpanEqual(segment, S("temp"))) {
     WriteA(S("5")); // Bug?? TEMP not defined?
     WriteStrNL("D=A");
@@ -222,9 +221,12 @@ char* SetAddr(Span segment, Span idx, Buffer* bufout) {
   } else {
     return "Not a known segment type.";
   }
+  return NULL;
 }
 
 Handle(push) {
+  (void) st;
+  (void) t;
 
   char* err = SetAddr(t.arg1, t.arg2, bufout);
   if(err) return err;
@@ -260,6 +262,8 @@ Handle(push) {
   WriteStrNL("M=M+1");
 
 Handle(pop) {
+  (void)st;
+  (void)t;
 
   // Store calculated address in D
   char* err = SetAddr(t.arg1, t.arg2, bufout);
@@ -294,10 +298,10 @@ static inline char* arith(char* arith, Buffer* bufout) {
   return NULL;
 }
 
-Handle(add) { return arith("D=M+D", bufout);}
-Handle(sub) { return arith("D=M-D", bufout);}
-Handle(and) { return arith("D=M&D", bufout);}
-Handle(or)  { return arith("D=M|D", bufout);}
+Handle(add) { (void)st; (void)t; return arith("D=M+D", bufout);}
+Handle(sub) { (void)st; (void)t; return arith("D=M-D", bufout);}
+Handle(and) { (void)st; (void)t; return arith("D=M&D", bufout);}
+Handle(or)  { (void)st; (void)t; return arith("D=M|D", bufout);}
 
 static inline char* unary(char* arith, Buffer* bufout) {
   popd
@@ -308,8 +312,8 @@ static inline char* unary(char* arith, Buffer* bufout) {
 
   return NULL;
 }
-Handle(neg) { return unary("D=-D", bufout);} 
-Handle(not) { return unary("D=!D", bufout);} 
+Handle(neg) { (void)st; (void)t; return unary("D=-D", bufout);} 
+Handle(not) { (void)st; (void)t; return unary("D=!D", bufout);} 
 
 // *CAREFUL* not thread safe
 Span nextLabel(int i) {
@@ -354,9 +358,9 @@ static inline char* comparison(char* dJump, Buffer* bufout) {
 
   return NULL;
 }
-Handle(eq) { return comparison("D;JEQ", bufout); }
-Handle(lt) { return comparison("D;JGT", bufout); }
-Handle(gt) { return comparison("D;JLT", bufout); }
+Handle(eq) { (void)st; (void)t; return comparison("D;JEQ", bufout); }
+Handle(lt) { (void)st; (void)t; return comparison("D;JGT", bufout); }
+Handle(gt) { (void)st; (void)t; return comparison("D;JLT", bufout); }
 
 #undef Write
 #undef Handle
@@ -492,6 +496,7 @@ void test() {
   Byte b[1 << 10];
   Buffer buf = BufferInit(b, 1 << 10);
   SpanResult sr = secondPass(NULL, S("push const 3"), &buf);
+  (void)sr;
   (void)secondPass;
 }
 
