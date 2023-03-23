@@ -18,9 +18,10 @@ function test {    # Run tests
 function check {
   gcc $CFLAGS -g vm.c -o vm
   ./vm StackArithmetic/SimpleAdd/SimpleAdd.vm
-  ./vm MemoryAccess/BasicTest/BasicTest.vm
   ./vm StackArithmetic/StackTest/StackTest.vm
-
+  ./vm MemoryAccess/BasicTest/BasicTest.vm
+  ./vm MemoryAccess/PointerTest/PointerTest.vm
+  ./vm MemoryAccess/StaticTest/StaticTest.vm
 }
 
 function help {     # Prints help

@@ -176,7 +176,6 @@ SpanResult fixedMap(Span segment) {
     X(local, LCL) \
     X(this, THIS) \
     X(that, THAT) \
-    X(pointer, THIS) \
     X(argument, ARG) 
 
   #define X(_i,_j) if(SpanEqual(segment, S(#_i))) return SPANRESULT(S(#_j));
@@ -200,16 +199,23 @@ char* SetAddr(Span segment, Span idx, Buffer* bufout) {
   } else if(SpanEqual(segment, S("constant"))) {
     WriteA(idx);
     WriteStrNL("D=A");
-    WriteA(S("TEMP"));
+    WriteA(S("5"));
     WriteStrNL("M=D");
     return NULL;
   } else if(SpanEqual(segment, S("static"))) {
+    WriteStr("@");
     WriteStr(VmFileName);
     WriteStr(".");
     WriteSpan(idx);
+    WriteStr("\n");
     return NULL;
   } else if(SpanEqual(segment, S("temp"))) {
     WriteA(S("5")); // Bug?? TEMP not defined?
+    WriteStrNL("D=A");
+    WriteA(idx);
+    WriteStrNL("A=D+A");
+  } else if(SpanEqual(segment, S("pointer"))) {
+    WriteA(S("THIS"));
     WriteStrNL("D=A");
     WriteA(idx);
     WriteStrNL("A=D+A");
@@ -217,6 +223,7 @@ char* SetAddr(Span segment, Span idx, Buffer* bufout) {
     return "Not a known segment type.";
   }
 }
+
 Handle(push) {
 
   char* err = SetAddr(t.arg1, t.arg2, bufout);
@@ -260,14 +267,14 @@ Handle(pop) {
   WriteStrNL("D=A");
 
   // Store D in TEMP
-  WriteStrNL("@TEMP");
+  WriteStrNL("@5");
   WriteStrNL("M=D");
 
   // Pop D
   popd
 
   // Get calculated address in A without touching D
-  WriteStrNL("@TEMP");
+  WriteStrNL("@5");
   WriteStrNL("A=M");
 
   // Finally store D in the calculated address
@@ -401,6 +408,14 @@ SpanResult secondPass(SymbolTable* st, Span s, Buffer* bufout) {
 
 void test(void);
 
+inline static char *basename(char *path)
+{
+    char *s = strrchr(path, '/');
+    if (!s)
+        return path;
+    else
+        return s + 1;
+}
 int themain(int argc, char** argv) {
   #ifdef TEST
     test();
@@ -412,7 +427,7 @@ int themain(int argc, char** argv) {
     return -1;
   }
 
-  VmFileName = argv[1];
+  VmFileName = basename(argv[1]);
 
   #define MAXFILESIZE 1<<20
   static Byte filein [MAXFILESIZE];
@@ -422,9 +437,9 @@ int themain(int argc, char** argv) {
   Buffer bufout = BufferInit(fileout, MAXFILESIZE);
 
   // Load asm file
-  SpanResult sr = OsSlurp(VmFileName, MAXFILESIZE, &bufin);
+  SpanResult sr = OsSlurp(argv[1], MAXFILESIZE, &bufin);
   if(sr.error) {
-    fprintf(stderr, "Error reading file %s.\n%s\n", VmFileName, sr.error);
+    fprintf(stderr, "Error reading file %s.\n%s\n", argv[1], sr.error);
     return -1;
   }
 
@@ -443,7 +458,7 @@ int themain(int argc, char** argv) {
   // Save into output file
   Byte newName[1024];
   Buffer nbuf = BufferInit(newName, 1024);
-  Span oldName = SpanFromString(VmFileName);
+  Span oldName = SpanFromString(argv[1]);
   Span baseName = SpanCut(oldName, '.').head;
 
   BufferCopy(baseName, &nbuf);
