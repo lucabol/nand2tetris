@@ -3,10 +3,10 @@
 CFLAGS='-Wall -Wextra -Wpedantic -std=c99'
 
 function perf {     # Perf test
-  hyperfine "./assembler pong/pong.asm" "./rustassembler pong/pong.asm" "java HackAssembler pong/pong.asm" "python python/Assembler.py pong/pong.asm"
+  hyperfine --warmup 5 "./assembler pong/pong.asm" "./rustassembler pong/pong.asm" "java HackAssembler pong/pong.asm" "python python/Assembler.py pong/pong.asm"
 }
 
-function linecount {
+function lc {       # Count lines of code
   wc -l assembler.c
   wc -l rust/*.rs
   wc -l java/*.java
@@ -26,7 +26,7 @@ function check {    # Diff 2 assemblers
 }
 
 function buildg {    # Build debug
-  gcc $CFLAGS -g assembler.c -o assembler
+  gcc $CFLAGS -g assembler.c -o assemblerg
 }
 
 function test {      # Run the tests
@@ -35,7 +35,7 @@ function test {      # Run the tests
 }
 function buildf {    # Build fast
   musl-clang $CFLAGS  -Ofast -flto -static assembler.c -o assembler
-  musl-gcc $CFLAGS -Ofast -fwhole-program -static assembler.c -o assembler_mg
+  musl-gcc $CFLAGS  -Ofast -fwhole-program -static assembler.c -o assembler_gcc
 }
 function assemble {    # assemble
   buildf
