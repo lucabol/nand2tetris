@@ -2,6 +2,17 @@
 
 CFLAGS='-Wall -Wextra -Wpedantic -std=c99'
 
+function perf {     # Perf test
+  hyperfine "./assembler pong/pong.asm" "./rustassembler pong/pong.asm" "java HackAssembler pong/pong.asm" "python python/Assembler.py pong/pong.asm"
+}
+
+function linecount {
+  wc -l assembler.c
+  wc -l rust/*.rs
+  wc -l java/*.java
+  wc -l python/*.py
+}
+
 function check {    # Diff 2 assemblers
   assemble
   diff -s ./add/Add.hack ./add/Add.asm.hack
