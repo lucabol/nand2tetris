@@ -325,16 +325,15 @@ char* GenFLabel(Buffer* bufout, bool indexed) {
 }
 
 #define CheckF(...) { char* _err = __VA_ARGS__; if(_err) return _err; }
-#define TOK(_which, _arg1, _arg2) (Token) { _which, S(#_arg1), S(#_arg2) }
-#define Emit(_tt, _arg1, _arg2) CheckF(_tt ## f(TOK(_tt, _arg1, _arg2), bufout))
 #define PUSH(_reg) { WriteA(S(#_reg)); WriteStrNL("D=M"); pushd;}
+#define PUSHSPAN(_reg) { WriteA(_reg); WriteStrNL("D=M"); pushd;}
 
 Handle(function) {
   FuncName = t.arg1;
 
   WriteStr("(");
   CheckF(GenFLabel(bufout, false));
-  WriteStr(")\n");
+  WriteStrNL(")");
 
   Size args = SpanToUlong(t.arg2);
   assert(args >= 0);
@@ -346,17 +345,79 @@ Handle(function) {
   return NULL;
 }
 Handle(call) {
-  (void)t;
-  // push ret address ...
-  //
+  // TODO: push ret address ...
+  Byte buf[1024];
+  Buffer b = BufferInit(buf, sizeof(buf));
+  CheckF(GenFLabel(&b,true));
+  Span retLabel = BufferToSpan(&b);
+
+  // push retAddress
+  PUSHSPAN(retLabel);
+
+  // push caller state
   PUSH(LCL);PUSH(ARG);PUSH(THIS);PUSH(THAT);
 
+  // ARG = SP - 5 - nArgs
+  WriteA(S("SP"));
+  WriteStrNL("D=M");
+  WriteA(S("5"));
+  WriteStrNL("D=D-A");
+  WriteA(t.arg2);
+  WriteStrNL("D=D-A");
+  WriteA(S("ARG"));
+  WriteStrNL("M=D");
+
+  // LCL = SP
+  WriteA(S("SP"));
+  WriteStrNL("D=M");
+  WriteA(S("LCL"));
+  WriteStrNL("M=D");
+  
+  // goto f
+  WriteA(t.arg1);
+  WriteStr("0;JMP");
+
+  // Write retAddress label
+  WriteLabel(retLabel);
   return NULL;
 }
 
 Handle(returne) {
-  WriteA(t.arg1);
-  WriteStr("0;JMP\n");
+  (void)t;
+
+  // frame = LCL
+  WriteA(S("LCL"));
+  WriteStrNL("D=M");
+  WriteA(S("frame"));
+  WriteStr("M=D");
+
+#define TOA(_addr, _minus) \
+  WriteA(S("frame")); \
+  WriteStr("M=D"); \
+  WriteA(S(#_minus)); \
+  WriteStrNL("D=D-A"); \
+  WriteA(S(#_addr)); \
+  WriteStrNL("M=D")
+
+  // *ARG = pop()
+  popd
+  WriteA(S("ARG"));
+  WriteStrNL("M=D");
+
+  // SP = ARG+1
+  WriteStrNL("D=D+1");
+  WriteA(S("SP"));
+  WriteStrNL("M=D");
+
+  TOA(retAddr, 5); // retAddr = *(frame-5)
+  TOA(THAT, 1);
+  TOA(THIS, 2);
+  TOA(ARG, 3);
+  TOA(LCL, 4);
+
+  WriteA(S("retAddr"));
+  WriteStrNL("0;JMP");
+
   return NULL;
 }
 #undef Write
