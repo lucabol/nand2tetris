@@ -198,15 +198,15 @@ Handle(pop) {
   if(err) return err;
   WriteStrNL("D=A");
 
-  // Store D in TEMP
-  WriteStrNL("@5");
+  // Store D in R13
+  WriteA(S("R13"));
   WriteStrNL("M=D");
 
   // Pop D
   popd
 
   // Get calculated address in A without touching D
-  WriteStrNL("@5");
+  WriteA(S("R13"));
   WriteStrNL("A=M");
 
   // Finally store D in the calculated address
