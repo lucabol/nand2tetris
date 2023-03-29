@@ -21,6 +21,10 @@ function check {
   ./vm ProgramFlow/FibonacciSeries/FibonacciSeries.vm
   ./vm FunctionCalls/FibonacciElement/*.vm
   mv FunctionCalls/FibonacciElement/out.asm FunctionCalls/FibonacciElement/FibonacciElement.asm
+  ./vm FunctionCalls/StaticsTest/*.vm
+  mv FunctionCalls/StaticsTest/out.asm FunctionCalls/StaticsTest/StaticsTest.asm
+  ./vm FunctionCalls/NestedCall/*.vm
+  mv FunctionCalls/NestedCall/out.asm FunctionCalls/NestedCall/NestedCall.asm
 }
 
 function help {     # Prints help
