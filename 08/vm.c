@@ -432,6 +432,7 @@ Handle(returne) {
   TOA(LCL, 4);
 
   WriteA(S("R14"));
+  WriteStrNL("A=M"); \
   WriteStrNL("0;JMP");
 
   return NULL;
