@@ -311,8 +311,6 @@ Handle(gotoif) {
 char* GenFLabel(Buffer* bufout, bool indexed) {
   static unsigned i = 0;
 
-  WriteSpan(SpanFromString(VmFileName));
-  WriteStr(".");
   WriteSpan(FuncName);
 
   if(indexed) {
@@ -326,7 +324,6 @@ char* GenFLabel(Buffer* bufout, bool indexed) {
 
 #define CheckF(...) { char* _err = __VA_ARGS__; if(_err) return _err; }
 #define PUSH(_reg) { WriteA(S(#_reg)); WriteStrNL("D=M"); pushd;}
-#define PUSHSPAN(_reg) { WriteA(_reg); WriteStrNL("D=M"); pushd;}
 
 Handle(function) {
   FuncName = t.arg1;
@@ -354,7 +351,9 @@ Handle(call) {
   Span retLabel = BufferToSpan(&b);
 
   // push retAddress
-  PUSHSPAN(retLabel);
+  WriteA(retLabel);
+  WriteStrNL("D=A");
+  pushd
 
   // push caller state
   PUSH(LCL);PUSH(ARG);PUSH(THIS);PUSH(THAT);
@@ -377,7 +376,7 @@ Handle(call) {
   
   // goto f
   WriteA(t.arg1);
-  WriteStr("0;JMP");
+  WriteStrNL("0;JMP");
 
   // Write retAddress label
   WriteLabel(retLabel);
@@ -437,6 +436,17 @@ Handle(returne) {
 
   return NULL;
 }
+
+char* bootstrap(Buffer* bufout) {
+  FuncName = S("Sys.init");
+
+  WriteA(S("256"));
+  WriteStrNL("D=A");
+  WriteA(S("SP"));
+  WriteStrNL("M=D");
+
+  return callf((Token) {call, S("Sys.init"), S("0")}, bufout);
+}
 #undef Write
 #undef Handle
 
@@ -489,57 +499,79 @@ SpanResult compile(Span s, Buffer* bufout) {
 
 void test(void);
 
+// Use only once not multithread
 inline static char *basename(char *path)
 {
-    char *s = strrchr(path, '/');
-    if (!s)
-        return path;
-    else
-        return s + 1;
+    static char filename[1024]; // https://en.wikipedia.org/wiki/Comparison_of_file_systems#Limits
+  //
+    strcpy(filename, path);
+
+    char* s = strrchr(filename, '/');
+    char* start = !s ? filename : s + 1;
+    char* end = strrchr(start, '.');
+
+
+    if (end) {
+      *end = 0;
+    } 
+    return start;
 }
+
 int themain(int argc, char** argv) {
   #ifdef TEST
     test();
     return 0;
   #endif
 
-  if(argc != 2) {
-    fprintf(stderr, "Usage: %s <asm_file>\n", argv[0]);
+  if(argc == 1) {
+    fprintf(stderr, "Usage: %s <asm_files>\n", argv[0]);
     return -1;
   }
 
-  VmFileName = basename(argv[1]);
 
   #define MAXFILESIZE 1<<20
-  static Byte filein [MAXFILESIZE];
   static Byte fileout[MAXFILESIZE];
-
-  Buffer bufin  = BufferInit(filein , MAXFILESIZE);
   Buffer bufout = BufferInit(fileout, MAXFILESIZE);
 
-  // Load asm file
-  SpanResult sr = OsSlurp(argv[1], MAXFILESIZE, &bufin);
-  if(sr.error) {
-    fprintf(stderr, "Error reading file %s.\n%s\n", argv[1], sr.error);
+  // Call Sys.init
+  char* err = bootstrap(&bufout);
+  if(err) {
+    fprintf(stderr, "Error writing bootstrapping code??");
     return -1;
   }
 
-  // Produce binary code
-  SpanResult sResult = compile(sr.data, &bufout);
-  if(sResult.error) {
-    fprintf(stderr, "ERROR: %s\n", sResult.error);
-    return -1;
+  // Processes all files
+  for(int i = 1; i < argc; i++) {
+    VmFileName = basename(argv[i]);
+
+    static Byte filein [MAXFILESIZE];
+    Buffer bufin  = BufferInit(filein , MAXFILESIZE);
+
+    // Load asm file
+    SpanResult sr = OsSlurp(argv[i], MAXFILESIZE, &bufin);
+    if(sr.error) {
+      fprintf(stderr, "Error reading file %s.\n%s\n", argv[i], sr.error);
+      return -1;
+    }
+
+    // Produce Assembler
+    SpanResult sResult = compile(sr.data, &bufout);
+    if(sResult.error) {
+      fprintf(stderr, "ERROR: %s\n", sResult.error);
+      return -1;
+    }
   }
-  Span s = sResult.data;
 
   // Save into output file
+  Span s = BufferToSpan(&bufout);
+
   Byte newName[1024];
   Buffer nbuf = BufferInit(newName, 1024);
   Span oldName = SpanFromString(argv[1]);
-  Span baseName = SpanCut(oldName, '.').head;
+  Span baseName = SpanRCut(oldName, '/').head; // just for linux
 
   BufferCopy(baseName, &nbuf);
-  BufferCopy(S(".asm"), &nbuf);
+  BufferCopy(S("/out.asm"), &nbuf);
   BufferPushByte(&nbuf, 0);
 
   char* writeError = OsFlash((char*)BufferToSpan(&nbuf).ptr, s);
