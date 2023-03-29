@@ -339,7 +339,9 @@ Handle(function) {
   assert(args >= 0);
   
   for(int i = 0; i < args; i++) {
-    PUSH(0);
+    WriteA(S("0"));
+    WriteStrNL("D=A");
+    pushd
   }
 
   return NULL;
@@ -388,34 +390,48 @@ Handle(returne) {
   // frame = LCL
   WriteA(S("LCL"));
   WriteStrNL("D=M");
-  WriteA(S("frame"));
-  WriteStr("M=D");
+  WriteA(S("R13"));
+  WriteStrNL("M=D");
 
-#define TOA(_addr, _minus) \
-  WriteA(S("frame")); \
-  WriteStr("M=D"); \
-  WriteA(S(#_minus)); \
-  WriteStrNL("D=D-A"); \
-  WriteA(S(#_addr)); \
-  WriteStrNL("M=D")
+  // retAddr = *(frame-5)
+  WriteA(S("R13"));
+  WriteStrNL("D=M");
+  WriteA(S("5"));
+  WriteStrNL("D=D-A");
+  WriteStrNL("A=D");
+  WriteStrNL("D=M");
+  WriteA(S("R14"));
+  WriteStrNL("M=D");
 
   // *ARG = pop()
   popd
   WriteA(S("ARG"));
+  WriteStrNL("A=M");
   WriteStrNL("M=D");
 
   // SP = ARG+1
+  WriteA(S("ARG"));
+  WriteStrNL("D=M");
   WriteStrNL("D=D+1");
   WriteA(S("SP"));
   WriteStrNL("M=D");
 
-  TOA(retAddr, 5); // retAddr = *(frame-5)
+#define TOA(_addr, _minus) \
+  WriteA(S("R13")); \
+  WriteStrNL("D=M"); \
+  WriteA(S(#_minus)); \
+  WriteStrNL("A=D-A"); \
+  WriteStrNL("D=M"); \
+  WriteA(S(#_addr)); \
+  WriteStrNL("M=D")
+
+
   TOA(THAT, 1);
   TOA(THIS, 2);
   TOA(ARG, 3);
   TOA(LCL, 4);
 
-  WriteA(S("retAddr"));
+  WriteA(S("R14"));
   WriteStrNL("0;JMP");
 
   return NULL;
