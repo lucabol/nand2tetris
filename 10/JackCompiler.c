@@ -22,6 +22,7 @@
   X(stringConstant) \
   X(integerConstant) \
   X(identifier) \
+  X(Error) \
   X(Eof)
 
 #define X(n) n,
@@ -51,16 +52,22 @@ typedef struct {
   char ch = ETOK;                                \
   Byte* startPtr = data.ptr;                       \
   Byte* endPtr   = 0;                             \
+  Byte* curPtr   = 0; \
+  Byte* nextPtr  = 0; \
   STATE(FirstState)
 
 
 #define ADVANCE                                     \
   if(rest.len == 0) {                               \
     ch = ETOK;                                     \
+    curPtr = rest.ptr; \
     rest.ptr++;                                     \
+    nextPtr = rest.ptr; \
   } else {                                          \
     ch = (char)rest.ptr[0];                         \
+    curPtr = rest.ptr; \
     rest = SpanTail(rest, rest.len - 1);                \
+    nextPtr = rest.ptr; \
   }                                                 \
   switch(ch)
 
@@ -70,17 +77,20 @@ typedef struct {
 
 #define RETTOKEN(tokenType, ptr, len) return (TokenResult) { (Token) {tokenType, SPAN(ptr, len)}, SPAN0, NULL }
 
+#define CASENUMBER case '0':case '1':case '2':case '3':case '4':case '5':case '6':case '7':case '8':case '9'
+
 TokenResult nextToken(Span data, Buffer* bufout) {
   FIRSTSTATE {
     case ETOK:
       goto Eof;
     case '"':
-      startPtr = rest.ptr + 1;
+      startPtr = nextPtr;
       goto stringConstant;
-    case '0':case '1':case '2':case '3':case '4':case '5':case '6':case '7':case '8':case '9':
-      startPtr = rest.ptr;
+    CASENUMBER: 
+      startPtr = curPtr;
       goto integerConstant;
     case '/':
+        startPtr = curPtr;
         goto maybeComment;
     default:
       goto FirstState;
@@ -91,7 +101,7 @@ TokenResult nextToken(Span data, Buffer* bufout) {
     case '*':
       goto starComment;
     default:
-      RETTOKEN(symbol, rest.ptr - 2, 1);
+      RETTOKEN(symbol, startPtr, 1);
   }
   STATE(lineComment) {
     case '\n':
@@ -101,7 +111,7 @@ TokenResult nextToken(Span data, Buffer* bufout) {
   }
   STATE(starComment) {
     case '*':
-      if(rest.len > 0 && *(rest.ptr + 1) == '/')
+      if(rest.len > 0 && *nextPtr == '/')
         goto FirstState;
     default:
       goto starComment;
@@ -114,10 +124,21 @@ TokenResult nextToken(Span data, Buffer* bufout) {
 
   }
   STATE(stringConstant) {
-
+    case '"':
+      endPtr = curPtr - 1;
+      RETTOKEN(stringConstant, startPtr, endPtr - startPtr);
+    case '\n':
+      endPtr = curPtr - 1;
+      RETTOKEN(Error, startPtr, endPtr - startPtr);
+    default:
+      goto stringConstant;
   }
   STATE(integerConstant) {
-
+    CASENUMBER:
+      goto integerConstant;
+    default:
+      endPtr = curPtr;
+      RETTOKEN(integerConstant, startPtr, endPtr - startPtr);
   }
   STATE(identifier) {
 
