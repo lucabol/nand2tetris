@@ -44,8 +44,85 @@ typedef struct {
 } TokenResult;
 
 
+#define ETOK ((char)-1)
+
+#define FIRSTSTATE                                \
+  Span rest = data;                                \
+  char ch = ETOK;                                \
+  Byte* startPtr = data.ptr;                       \
+  Byte* endPtr   = 0;                             \
+  STATE(FirstState)
+
+
+#define ADVANCE                                     \
+  if(rest.len == 0) {                               \
+    ch = ETOK;                                     \
+    rest.ptr++;                                     \
+  } else {                                          \
+    ch = (char)rest.ptr[0];                         \
+    rest = SpanTail(rest, rest.len - 1);                \
+  }                                                 \
+  switch(ch)
+
+#define STATE(name)                               \
+  name:                                           \
+  ADVANCE
+
+#define RETTOKEN(tokenType, ptr, len) return (TokenResult) { (Token) {tokenType, SPAN(ptr, len)}, SPAN0, NULL }
+
 TokenResult nextToken(Span data, Buffer* bufout) {
-  return (TokenResult){0};
+  FIRSTSTATE {
+    case ETOK:
+      goto Eof;
+    case '"':
+      startPtr = rest.ptr + 1;
+      goto stringConstant;
+    case '0':case '1':case '2':case '3':case '4':case '5':case '6':case '7':case '8':case '9':
+      startPtr = rest.ptr;
+      goto integerConstant;
+    case '/':
+        goto maybeComment;
+    default:
+      goto FirstState;
+  }
+  STATE(maybeComment) {
+    case '/':
+      goto lineComment;
+    case '*':
+      goto starComment;
+    default:
+      RETTOKEN(symbol, rest.ptr - 2, 1);
+  }
+  STATE(lineComment) {
+    case '\n':
+      goto FirstState;
+    default:
+      goto lineComment;
+  }
+  STATE(starComment) {
+    case '*':
+      if(rest.len > 0 && *(rest.ptr + 1) == '/')
+        goto FirstState;
+    default:
+      goto starComment;
+  }
+  STATE(Eof) {
+    default:
+      RETTOKEN(Eof, NULL, 0);
+  }
+  STATE(symbolOrKeyword) {
+
+  }
+  STATE(stringConstant) {
+
+  }
+  STATE(integerConstant) {
+
+  }
+  STATE(identifier) {
+
+  }
+
 }
 
 int themain(int argc, char** argv) {
