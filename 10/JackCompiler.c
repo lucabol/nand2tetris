@@ -75,25 +75,41 @@ typedef struct {
   name:                                           \
   ADVANCE
 
-#define RETTOKEN(tokenType, ptr, len) return (TokenResult) { (Token) {tokenType, SPAN(ptr, len)}, SPAN0, NULL }
+#define RETTOKEN(tokenType, ptr, len) return (TokenResult) { (Token) {tokenType, SPAN(ptr, len)}, rest, NULL }
 
 #define CASENUMBER case '0':case '1':case '2':case '3':case '4':case '5':case '6':case '7':case '8':case '9'
+#define CASESYMBOL case '{':case '}':case '(':case ')':case '[':case ']':case '.':case ',':case ';': \
+  case '+':case '-':case '*':case '&':case '|':case '<':case '>':case '=': case '~'
+#define CASESPACES case ' ': case '\t': case '\n': case '\r'
 
-TokenResult nextToken(Span data, Buffer* bufout) {
+#define KEYWORDS Y(class) Y(constructor) Y(function) Y(method) Y(field) Y(static) Y(var) \
+  Y(int) Y(char) Y(boolean) Y(void) Y(true) Y(false) Y(null) Y(this) Y(let) \
+  Y(do) Y(if) Y(else) Y(while) Y(return)
+
+#define Y(k) || SpanEqual(S(#k),s)
+#define IsKeyword (0 KEYWORDS) 
+
+TokenResult nextToken(Span data) {
   FIRSTSTATE {
     case ETOK:
-      goto Eof;
+      RETTOKEN(Eof, NULL, 0);
     case '"':
       startPtr = nextPtr;
       goto stringConstant;
     CASENUMBER: 
       startPtr = curPtr;
       goto integerConstant;
-    case '/':
-        startPtr = curPtr;
-        goto maybeComment;
-    default:
+    case '/': // special case for start of comment symbol
+      startPtr = curPtr;
+      goto maybeComment;
+    CASESYMBOL:
+      startPtr = curPtr;
+      RETTOKEN(symbol, startPtr, 1);
+    CASESPACES:
       goto FirstState;
+    default:
+      startPtr = curPtr;
+      goto identifierOrKeyword;
   }
   STATE(maybeComment) {
     case '/':
@@ -104,32 +120,44 @@ TokenResult nextToken(Span data, Buffer* bufout) {
       RETTOKEN(symbol, startPtr, 1);
   }
   STATE(lineComment) {
+    case ETOK:
+      RETTOKEN(Eof, NULL, 0);
     case '\n':
       goto FirstState;
     default:
       goto lineComment;
   }
   STATE(starComment) {
+    case ETOK:
+      RETTOKEN(Eof, NULL, 0);
     case '*':
-      if(rest.len > 0 && *nextPtr == '/')
+      if(rest.len > 0 && *nextPtr == '/') {
+        rest.ptr++;rest.len--;
         goto FirstState;
+      }
     default:
       goto starComment;
   }
-  STATE(Eof) {
-    default:
-      RETTOKEN(Eof, NULL, 0);
-  }
-  STATE(symbolOrKeyword) {
+  STATE(identifierOrKeyword) {
+    case ETOK: CASESPACES: CASESYMBOL:
+      endPtr = curPtr - 1;
+      Span s = SPAN(startPtr, endPtr - startPtr + 1);
 
+      // Eat back one char because otherwise we might miss a symbol
+      rest.ptr--;rest.len++;
+      // TODO: IsKeyword should be parametize by s. Goofy now.
+      if(IsKeyword) RETTOKEN(keyword, s.ptr, s.len);
+      else RETTOKEN(identifier, s.ptr, s.len);
+    default:
+      goto identifierOrKeyword;
   }
   STATE(stringConstant) {
     case '"':
       endPtr = curPtr - 1;
-      RETTOKEN(stringConstant, startPtr, endPtr - startPtr);
-    case '\n':
+      RETTOKEN(stringConstant, startPtr, endPtr - startPtr + 1);
+    case '\n': case ETOK:
       endPtr = curPtr - 1;
-      RETTOKEN(Error, startPtr, endPtr - startPtr);
+      RETTOKEN(Error, startPtr, endPtr - startPtr + 1);
     default:
       goto stringConstant;
   }
@@ -138,12 +166,20 @@ TokenResult nextToken(Span data, Buffer* bufout) {
       goto integerConstant;
     default:
       endPtr = curPtr;
+      // Eat back one char because otherwise we might miss a symbol
+      rest.ptr--;rest.len++;
       RETTOKEN(integerConstant, startPtr, endPtr - startPtr);
   }
-  STATE(identifier) {
+}
 
+Span xmlNormalize(Span s) {
+  switch(s.ptr[0]) {
+    case '<': return S("&lt;");
+    case '>': return S("&gt;");
+    case '"': return S("&quot;");
+    case '&': return S("&amp;");
+    default: return s;
   }
-
 }
 
 int themain(int argc, char** argv) {
@@ -154,9 +190,11 @@ int themain(int argc, char** argv) {
 
 
   #define MAXFILESIZE 1<<20
-  static Byte fileout[MAXFILESIZE];
-  Buffer bufout = BufferInit(fileout, MAXFILESIZE);
+  //static Byte fileout[MAXFILESIZE];
+  //Buffer bufout = BufferInit(fileout, MAXFILESIZE);
 
+
+  printf("%s\n", "<tokens>");
 
   // Processes all files
   for(int i = 1; i < argc; i++) {
@@ -173,17 +211,24 @@ int themain(int argc, char** argv) {
 
     Span rest = sr.data;
 
+
     while(true) {
-      TokenResult sResult = nextToken(rest, &bufout);
+      TokenResult sResult = nextToken(rest);
       if(sResult.error) {
         fprintf(stderr, "ERROR: %s\n", sResult.error);
         return -1;
       }
       if(sResult.token.type == Eof) break;
+      char* type = tokenNames[sResult.token.type];
+
+      printf("<%s> %s </%s>\n",type, SpanTo1KTempString(xmlNormalize(sResult.token.value)), type);
       rest = sResult.rest;
     }
   }
 
+  printf("%s\n", "</tokens>");
+
+#ifdef NOTTOFILE
   // Save into output file
   Span s = BufferToSpan(&bufout);
 
@@ -193,7 +238,7 @@ int themain(int argc, char** argv) {
   Span baseName = SpanRCut(oldName, '/').head; // just for linux
 
   BufferCopy(baseName, &nbuf);
-  BufferCopy(S("/out.asm"), &nbuf);
+  BufferCopy(S("/out.xml"), &nbuf);
   BufferPushByte(&nbuf, 0);
 
   char* writeError = OsFlash((char*)BufferToSpan(&nbuf).ptr, s);
@@ -201,5 +246,7 @@ int themain(int argc, char** argv) {
     fprintf(stderr, "%s\n", writeError);
     return -1;
   }
+#endif
+
   return 0;
 }
