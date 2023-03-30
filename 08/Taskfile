@@ -27,6 +27,24 @@ function check {
   mv FunctionCalls/NestedCall/out.asm FunctionCalls/NestedCall/NestedCall.asm
 }
 
+function lc {       # Count lines of code
+  wc -l vm.c
+  wc -l rust/*.rs
+  wc -l java/*.java
+}
+
+function perf {   # Perf test
+  hyperfine --warmup 5 "./vm_cl FunctionCalls/FibonacciElement/*.vm" "./vm_mg FunctionCalls/FibonacciElement/*.vm" "./rustvm FunctionCalls/FibonacciElement" "java VMtranslator FunctionCalls/FibonacciElement"
+}
+
+function memrust {    # Test memory consumption
+  valgrind --tool=massif --massif-out-file=rustvm.massif --stacks=yes  ./rustvm FunctionCalls/FibonacciElement
+  ms_print rustvm.massif | bat
+}
+function memc {    # Test memory consumption
+  valgrind --tool=massif --massif-out-file=vm_cl.massif --stacks=yes  ./vm_cl FunctionCalls/FibonacciElement/*.vm
+  ms_print vm_cl.massif | bat
+}
 function help {     # Prints help
     echo "Usage: $0 <task> <args>"
     echo "Execute a task with the specified arguments."
