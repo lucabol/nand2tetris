@@ -182,71 +182,91 @@ Span xmlNormalize(Span s) {
   }
 }
 
+#define WriteSpan(_k) if(BufferCopy(_k,bufout).error) return "Writing buffer too small"
+#define WriteStr(_s) WriteSpan(SpanFromString(_s))
+#define WriteStrNL(_s) WriteStr((_s));WriteStr("\n")
+#define WriteXml(_tag,_value) WriteStr("<"); WriteStr(_tag); WriteStr(">"); \
+  WriteStr(_value); WriteStr("</"); WriteStr(_tag); WriteStrNL(">")
+
+char* EmitTokenizerXml(Span rest, Buffer* bufout) {
+
+    WriteStrNL("<tokens>");
+
+    while(true) {
+      TokenResult sResult = nextToken(rest);
+      if(sResult.error) return sResult.error;
+
+      if(sResult.token.type == Error) return "Error token type shouldn't be generated";
+
+      if(sResult.token.type == Eof) break;
+
+      char* type  = tokenNames[sResult.token.type];
+      char* value = (char*)SpanTo1KTempString(xmlNormalize(sResult.token.value));
+
+      WriteXml(type, value);
+
+      rest = sResult.rest;
+    }
+
+    WriteStrNL("</tokens>");
+    return NULL;
+}
+
 int themain(int argc, char** argv) {
   if(argc == 1) {
     fprintf(stderr, "Usage: %s <jack_files>\n", argv[0]);
     return -1;
   }
 
-
-  #define MAXFILESIZE 1<<20
-  //static Byte fileout[MAXFILESIZE];
-  //Buffer bufout = BufferInit(fileout, MAXFILESIZE);
-
-
-  printf("%s\n", "<tokens>");
-
   // Processes all files
   for(int i = 1; i < argc; i++) {
+
+    // Initialize input and output buffers
+    #define MAXFILESIZE 1<<20
+
+    static Byte fileout[MAXFILESIZE];
+    Buffer bufout = BufferInit(fileout, MAXFILESIZE);
 
     static Byte filein [MAXFILESIZE];
     Buffer bufin  = BufferInit(filein , MAXFILESIZE);
 
-    // Load asm file
-    SpanResult sr = OsSlurp(argv[i], MAXFILESIZE, &bufin);
+    char* filePath = argv[i];
+
+    // Load input file
+    SpanResult sr = OsSlurp(filePath, MAXFILESIZE, &bufin);
     if(sr.error) {
-      fprintf(stderr, "Error reading file %s.\n%s\n", argv[i], sr.error);
+      fprintf(stderr, "Error reading file %s.\n%s\n", filePath, sr.error);
       return -1;
     }
 
-    Span rest = sr.data;
+    #ifdef TOKENIZER
+    char* error = EmitTokenizerXml(sr.data, &bufout);
+    if(error) {
+      fprintf(stderr, "Error: %s\n", error);
+      return -1;
+    }
+    #else
+    #error Implement parser
+    #endif
 
+    // Produce output file
+    Span s = BufferToSpan(&bufout);
 
-    while(true) {
-      TokenResult sResult = nextToken(rest);
-      if(sResult.error) {
-        fprintf(stderr, "ERROR: %s\n", sResult.error);
-        return -1;
-      }
-      if(sResult.token.type == Eof) break;
-      char* type = tokenNames[sResult.token.type];
+    Byte newName[1024];
+    Buffer nbuf = BufferInit(newName, sizeof(newName));
+    Span oldName = SpanFromString(filePath);
+    Span withoutExt = SpanRCut(oldName, '.').head; // just for linux
 
-      printf("<%s> %s </%s>\n",type, SpanTo1KTempString(xmlNormalize(sResult.token.value)), type);
-      rest = sResult.rest;
+    BufferCopy(withoutExt, &nbuf);
+    BufferCopy(S("T.vm"), &nbuf);
+    BufferPushByte(&nbuf, 0); // make it a proper 0 terminated string
+
+    char* writeError = OsFlash((char*)BufferToSpan(&nbuf).ptr, s);
+    if(writeError) {
+      fprintf(stderr, "%s\n", writeError);
+      return -1;
     }
   }
-
-  printf("%s\n", "</tokens>");
-
-#ifdef NOTTOFILE
-  // Save into output file
-  Span s = BufferToSpan(&bufout);
-
-  Byte newName[1024];
-  Buffer nbuf = BufferInit(newName, 1024);
-  Span oldName = SpanFromString(argv[1]);
-  Span baseName = SpanRCut(oldName, '/').head; // just for linux
-
-  BufferCopy(baseName, &nbuf);
-  BufferCopy(S("/out.xml"), &nbuf);
-  BufferPushByte(&nbuf, 0);
-
-  char* writeError = OsFlash((char*)BufferToSpan(&nbuf).ptr, s);
-  if(writeError) {
-    fprintf(stderr, "%s\n", writeError);
-    return -1;
-  }
-#endif
 
   return 0;
 }

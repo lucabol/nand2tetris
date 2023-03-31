@@ -2,29 +2,21 @@
 
 CFLAGS='-Wall -Wextra -Wpedantic -std=c99'
 
-function buildg {    # Build debug
-  gcc $CFLAGS -g JackCompiler.c -o JackCompiler
+function buildtg {    # Build tokenizer debug
+  gcc $CFLAGS -DTOKENIZER -g JackCompiler.c -o JackCompiler
 }
-function buildf {    # Build fast
-  musl-clang $CFLAGS  -Ofast -flto -static JackCompiler.c -o JackCompiler_cl
-  musl-gcc $CFLAGS -Ofast -fwhole-program -static JackCompiler.c -o JackCompiler_mg
-}
-
-function test {    # Run tests
-  gcc -DTEST $CFLAGS -g JackCompiler.c -o JackCompiler
-  ./JackCompiler
+function buildtf {    # Build tokenizer fast
+  musl-clang -DTOKENIZER $CFLAGS  -Ofast -flto -static JackCompiler.c -o JackCompiler_cl
+  musl-gcc -DTOKENIZER $CFLAGS -Ofast -fwhole-program -static JackCompiler.c -o JackCompiler_mg
 }
 
-function check {
-  buildg
-  ./JackCompiler ProgramFlow/BasicLoop/BasicLoop.JackCompiler
-  ./JackCompiler ProgramFlow/FibonacciSeries/FibonacciSeries.JackCompiler
-  ./JackCompiler FunctionCalls/FibonacciElement/*.JackCompiler
-  mv FunctionCalls/FibonacciElement/out.asm FunctionCalls/FibonacciElement/FibonacciElement.asm
-  ./JackCompiler FunctionCalls/StaticsTest/*.JackCompiler
-  mv FunctionCalls/StaticsTest/out.asm FunctionCalls/StaticsTest/StaticsTest.asm
-  ./JackCompiler FunctionCalls/NestedCall/*.JackCompiler
-  mv FunctionCalls/NestedCall/out.asm FunctionCalls/NestedCall/NestedCall.asm
+function testt {      # Run tokenizer test data
+  buildtg
+  for v in ./Square/Square ./Square/Main ./Square/SquareGame ./ArrayTest/Main
+  do
+    ./JackCompiler ${v}.jack
+    ../../tools/TextComparer.sh ${v}T.xml ${v}T.vm 
+  done
 }
 
 function lc {       # Count lines of code
