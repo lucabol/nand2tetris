@@ -16,6 +16,8 @@
 #define OS_STDC_IMPL
 #include "ulib/OsStdc.h"
 
+/** TOKENIZER **/
+
 #define TOKENS \
   X(keyword) \
   X(symbol) \
@@ -187,6 +189,8 @@ Span xmlNormalize(Span s) {
 #define WriteStrNL(_s) WriteStr((_s));WriteStr("\n")
 #define WriteXml(_tag,_value) WriteStr("<"); WriteStr(_tag); WriteStr(">"); \
   WriteStr(_value); WriteStr("</"); WriteStr(_tag); WriteStrNL(">")
+#define WriteXmlSpan(_tag,_value) WriteStr("<"); WriteStr(_tag); WriteStr(">"); \
+  WriteSpan(_value); WriteStr("</"); WriteStr(_tag); WriteStrNL(">")
 
 char* EmitTokenizerXml(Span rest, Buffer* bufout) {
 
@@ -201,9 +205,9 @@ char* EmitTokenizerXml(Span rest, Buffer* bufout) {
       if(sResult.token.type == Eof) break;
 
       char* type  = tokenNames[sResult.token.type];
-      char* value = (char*)SpanTo1KTempString(xmlNormalize(sResult.token.value));
+      Span value = xmlNormalize(sResult.token.value);
 
-      WriteXml(type, value);
+      WriteXmlSpan(type, value);
 
       rest = sResult.rest;
     }
@@ -212,6 +216,28 @@ char* EmitTokenizerXml(Span rest, Buffer* bufout) {
     return NULL;
 }
 
+/** END TOKENIZER **/
+
+/** PARSER **/
+
+#define NextToken(varName) {TokenResult tr = nextToken(rest); if(tr.error) return tr.error; varName = tr.token;}
+#define Handle(_rule) char* compile ## _rule(Span rest, Buffer* bufout)
+
+char* match(Token t, TokenType tt, Buffer* bufout) {
+  if(t.type != tt) return "Unmatched token";
+
+  WriteXmlSpan(tokenNames[tt], t.value);
+  return NULL;
+}
+
+Handle(Class) {
+  Token tok;
+  NextToken(tok);
+
+  return NULL;
+}
+
+/** END PARSER **/
 int themain(int argc, char** argv) {
   if(argc == 1) {
     fprintf(stderr, "Usage: %s <jack_files>\n", argv[0]);
