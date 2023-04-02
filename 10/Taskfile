@@ -3,19 +3,37 @@
 CFLAGS='-Wall -Wextra -Wpedantic -std=c99'
 
 function buildtg {    # Build tokenizer debug
-  gcc $CFLAGS -DTOKENIZER -g JackCompiler.c -o JackCompiler
+  gcc $CFLAGS -DTOKENIZER -g JackCompiler.c -o JackCompilerT
 }
+
+function buildg {    # Build parser debug
+  gcc $CFLAGS -g JackCompiler.c -o JackCompiler
+}
+
 function buildtf {    # Build tokenizer fast
-  musl-clang -DTOKENIZER $CFLAGS  -Ofast -flto -static JackCompiler.c -o JackCompiler_cl
-  musl-gcc -DTOKENIZER $CFLAGS -Ofast -fwhole-program -static JackCompiler.c -o JackCompiler_mg
+  musl-clang -DTOKENIZER $CFLAGS  -Ofast -flto -static JackCompiler.c -o JackCompilerT_cl
+  musl-gcc -DTOKENIZER $CFLAGS -Ofast -fwhole-program -static JackCompiler.c -o JackCompilerT_mg
+}
+function buildf {    # Build tokenizer fast
+  musl-clang $CFLAGS  -Ofast -flto -static JackCompiler.c -o JackCompiler_cl
+  musl-gcc $CFLAGS -Ofast -fwhole-program -static JackCompiler.c -o JackCompiler_mg
 }
 
 function testt {      # Run tokenizer test data
   buildtg
   for v in ./Square/Square ./Square/Main ./Square/SquareGame ./ArrayTest/Main
   do
-    ./JackCompiler ${v}.jack
+    ./JackCompilerT ${v}.jack
     ../../tools/TextComparer.sh ${v}T.xml ${v}T.vm 
+  done
+}
+
+function test {      # Run tokenizer test data
+  buildg
+  for v in ./Square/Square ./Square/Main ./Square/SquareGame ./ArrayTest/Main
+  do
+    ./JackCompiler ${v}.jack
+    ../../tools/TextComparer.sh ${v}.xml ${v}.vm 
   done
 }
 

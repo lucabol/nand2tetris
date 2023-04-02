@@ -220,11 +220,26 @@ char* EmitTokenizerXml(Span rest, Buffer* bufout) {
 
 /** PARSER **/
 
-#define NextToken(varName) {TokenResult tr = nextToken(rest); if(tr.error) return tr.error; varName = tr.token;}
+#define NextToken {TokenResult tr = nextToken(rest); if(tr.error) return tr.error; tok = tr.token; rest = tr.rest;}
 #define Handle(_rule) char* compile ## _rule(Span rest, Buffer* bufout)
+#define Match(__tt, __value) { NextToken; match(tok, __tt, S(#__value), bufout); }
 
-char* match(Token t, TokenType tt, Buffer* bufout) {
-  if(t.type != tt) return "Unmatched token";
+char* cerror(char* startMessage, Span s1, Span s2) {
+  static Byte buf[1024];
+  Buffer bufo = BufferInit(buf, sizeof(buf));
+  Buffer* bufout = &bufo;
+  WriteStr(startMessage); WriteStr(" : "); WriteSpan(s1); WriteStr(" ");WriteSpan(s2); WriteStrNL("");
+  bufo.data.ptr[bufo.index] = 0;
+  return (char*)buf;
+}
+
+char* cerrorS(char* startMessage, char* s1, char* s2) {
+  return cerror(startMessage, SpanFromString(s1), SpanFromString(s2));
+}
+
+char* match(Token t, TokenType tt, Span value, Buffer* bufout) {
+  if(t.type != tt) return cerrorS("Unmatched token", tokenNames[tt], tokenNames[t.type]);
+  if(value.len != 0 && !SpanEqual(value, t.value)) return cerror("Unmatched value", value, t.value);
 
   WriteXmlSpan(tokenNames[tt], t.value);
   return NULL;
@@ -232,8 +247,16 @@ char* match(Token t, TokenType tt, Buffer* bufout) {
 
 Handle(Class) {
   Token tok;
-  NextToken(tok);
 
+  WriteStrNL("<class>");
+
+  Match(keyword,class);
+  Match(identifier,);
+  Match(symbol,{);
+  // vardecs
+  Match(symbol,});
+
+  WriteStrNL("</class>");
   return NULL;
 }
 
@@ -267,13 +290,14 @@ int themain(int argc, char** argv) {
 
     #ifdef TOKENIZER
     char* error = EmitTokenizerXml(sr.data, &bufout);
+    #else
+    char* error = compileClass(sr.data, &bufout);
+    #endif
+
     if(error) {
       fprintf(stderr, "Error: %s\n", error);
       return -1;
     }
-    #else
-    #error Implement parser
-    #endif
 
     // Produce output file
     Span s = BufferToSpan(&bufout);
@@ -284,7 +308,13 @@ int themain(int argc, char** argv) {
     Span withoutExt = SpanRCut(oldName, '.').head; // just for linux
 
     BufferCopy(withoutExt, &nbuf);
+
+    #ifdef TOKENIZER
     BufferCopy(S("T.vm"), &nbuf);
+    #else
+    BufferCopy(S(".vm"), &nbuf);
+    #endif
+
     BufferPushByte(&nbuf, 0); // make it a proper 0 terminated string
 
     char* writeError = OsFlash((char*)BufferToSpan(&nbuf).ptr, s);
