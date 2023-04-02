@@ -220,9 +220,22 @@ char* EmitTokenizerXml(Span rest, Buffer* bufout) {
 
 /** PARSER **/
 
-#define NextToken {TokenResult tr = nextToken(rest); if(tr.error) return tr.error; tok = tr.token; rest = tr.rest;}
-#define Handle(_rule) char* compile ## _rule(Span rest, Buffer* bufout)
-#define Match(__tt, __value) { NextToken; match(tok, __tt, S(#__value), bufout); }
+#define PWriteSpan(_k) if(BufferCopy(_k,bufout).error) return SPANERR("Writing buffer too small")
+#define PWriteStr(_s) PWriteSpan(SpanFromString(_s))
+#define PWriteStrNL(_s) PWriteStr((_s));PWriteStr("\n")
+#define PWriteXml(_tag,_value) PWriteStr("<"); PWriteStr(_tag); PWriteStr(">"); \
+  PWriteStr(_value); PWriteStr("</"); PWriteStr(_tag); PWriteStrNL(">")
+#define PWriteXmlSpan(_tag,_value) PWriteStr("<"); PWriteStr(_tag); PWriteStr(">"); \
+  PWriteSpan(_value); PWriteStr("</"); PWriteStr(_tag); PWriteStrNL(">")
+
+#define NextToken {TokenResult tr = nextToken(rest); if(tr.error) return SPANERR(tr.error); tok = tr.token; rest = tr.rest; }
+#define ConsumeNextToken(__tt, __value) { NextToken; if(isToken(tok, __tt, #__value)) ProcessCurrentToken else tokenerr(aRule) }
+#define ProcessCurrentToken { PWriteXmlSpan(tokenNames[tok.type], tok.value); }
+
+#define STARTRULE(_rule) SpanResult compile ## _rule(Token tok, Span rest, Buffer* bufout) {  PWriteStrNL("<" #_rule ">");
+#define ENDRULE(_rule) PWriteStrNL("</" #_rule ">"); return SPANOK(rest.ptr, rest.len); }
+
+#define Invoke(_rule) {SpanResult sr = compile ## _rule(tok, rest, bufout); if(sr.error) return sr; rest = sr.data; }
 
 char* cerror(char* startMessage, Span s1, Span s2) {
   static Byte buf[1024];
@@ -233,32 +246,74 @@ char* cerror(char* startMessage, Span s1, Span s2) {
   return (char*)buf;
 }
 
+#define tokenerr(_rule) { return SPANERR(cerror("Unknown Token in rule: " #_rule, SpanFromString(tokenNames[tok.type]), tok.value)); }
+
 char* cerrorS(char* startMessage, char* s1, char* s2) {
   return cerror(startMessage, SpanFromString(s1), SpanFromString(s2));
 }
 
-char* match(Token t, TokenType tt, Span value, Buffer* bufout) {
-  if(t.type != tt) return cerrorS("Unmatched token", tokenNames[tt], tokenNames[t.type]);
-  if(value.len != 0 && !SpanEqual(value, t.value)) return cerror("Unmatched value", value, t.value);
+bool isToken(Token tok, TokenType tt, char* value) {
 
-  WriteXmlSpan(tokenNames[tt], t.value);
-  return NULL;
+  if(tok.type != tt)
+    return false;
+
+  Span svalue = SpanFromString(value);
+  if(svalue.len != 0 && !SpanEqual(svalue, tok.value))
+    return false;
+
+  return true;
 }
 
-Handle(Class) {
-  Token tok;
+STARTRULE(classVarDec)
+  ProcessCurrentToken
+  NextToken;
 
-  WriteStrNL("<class>");
+  // type
+  if(isToken(tok, keyword, "int") || isToken(tok, keyword, "char") || isToken(tok, keyword, "booleand")
+    || isToken(tok, identifier,""))
+    ProcessCurrentToken
+  else
+    tokenerr(classVarDec)
 
-  Match(keyword,class);
-  Match(identifier,);
-  Match(symbol,{);
-  // vardecs
-  Match(symbol,});
+  ConsumeNextToken(identifier,)
 
-  WriteStrNL("</class>");
-  return NULL;
-}
+  while(true) {
+    NextToken;
+    if(isToken(tok, symbol, ";")) {
+      ProcessCurrentToken
+      break;
+  } else if(isToken(tok, symbol, ",")) {
+      ProcessCurrentToken
+      ConsumeNextToken(identifier,)
+   } else
+       tokenerr(classVarDec)
+  }
+ENDRULE(classVarDec)
+
+STARTRULE(subroutineDec)
+
+ENDRULE(subroutineDec)
+
+STARTRULE(class)
+  ConsumeNextToken(keyword,class);
+  ConsumeNextToken(identifier,);
+  ConsumeNextToken(symbol,{);
+
+  while(true) {
+    NextToken;
+
+    if(isToken(tok, symbol,"}"))
+      break;
+    else if(isToken(tok, keyword, "static") || isToken(tok, keyword, "field"))
+      Invoke(classVarDec)
+    else if(isToken(tok, keyword, "constructor") || isToken(tok, keyword, "function") || isToken(tok, keyword, "method"))
+      Invoke(subroutineDec)
+    else
+      tokenerr(class)
+  }
+
+  ProcessCurrentToken
+ENDRULE(class)
 
 /** END PARSER **/
 int themain(int argc, char** argv) {
@@ -291,12 +346,12 @@ int themain(int argc, char** argv) {
     #ifdef TOKENIZER
     char* error = EmitTokenizerXml(sr.data, &bufout);
     #else
-    char* error = compileClass(sr.data, &bufout);
+    char* error = compileclass((Token) {0}, sr.data, &bufout);
     #endif
 
     if(error) {
       fprintf(stderr, "Error: %s\n", error);
-      return -1;
+      //return -1;
     }
 
     // Produce output file
