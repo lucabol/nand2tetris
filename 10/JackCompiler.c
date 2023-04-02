@@ -229,8 +229,9 @@ char* EmitTokenizerXml(Span rest, Buffer* bufout) {
   PWriteSpan(_value); PWriteStr("</"); PWriteStr(_tag); PWriteStrNL(">")
 
 #define NextToken {TokenResult tr = nextToken(rest); if(tr.error) return SPANERR(tr.error); tok = tr.token; rest = tr.rest; }
-#define ConsumeNextToken(__tt, __value) { NextToken; if(isToken(tok, __tt, #__value)) ProcessCurrentToken else tokenerr(aRule) }
+#define ConsumeNextToken(__tt, __value) { NextToken; if(IsToken(__tt, #__value)) ProcessCurrentToken else tokenerr(aRule) }
 #define ProcessCurrentToken { PWriteXmlSpan(tokenNames[tok.type], tok.value); }
+#define IsToken(_tt, _v) isToken(tok, _tt, _v)
 
 #define STARTRULE(_rule) SpanResult compile ## _rule(Token tok, Span rest, Buffer* bufout) {  PWriteStrNL("<" #_rule ">");
 #define ENDRULE(_rule) PWriteStrNL("</" #_rule ">"); return SPANOK(rest.ptr, rest.len); }
@@ -269,8 +270,8 @@ STARTRULE(classVarDec)
   NextToken;
 
   // type
-  if(isToken(tok, keyword, "int") || isToken(tok, keyword, "char") || isToken(tok, keyword, "booleand")
-    || isToken(tok, identifier,""))
+  if(IsToken(keyword, "int") || IsToken(keyword, "char") || IsToken(keyword, "booleand")
+    || IsToken(identifier,""))
     ProcessCurrentToken
   else
     tokenerr(classVarDec)
@@ -279,10 +280,10 @@ STARTRULE(classVarDec)
 
   while(true) {
     NextToken;
-    if(isToken(tok, symbol, ";")) {
+    if(IsToken(symbol, ";")) {
       ProcessCurrentToken
       break;
-  } else if(isToken(tok, symbol, ",")) {
+  } else if(IsToken(symbol, ",")) {
       ProcessCurrentToken
       ConsumeNextToken(identifier,)
    } else
@@ -302,11 +303,11 @@ STARTRULE(class)
   while(true) {
     NextToken;
 
-    if(isToken(tok, symbol,"}"))
+    if(IsToken(symbol,"}"))
       break;
-    else if(isToken(tok, keyword, "static") || isToken(tok, keyword, "field"))
+    else if(IsToken(keyword, "static") || IsToken(keyword, "field"))
       Invoke(classVarDec)
-    else if(isToken(tok, keyword, "constructor") || isToken(tok, keyword, "function") || isToken(tok, keyword, "method"))
+    else if(IsToken(keyword, "constructor") || IsToken(keyword, "function") || IsToken(keyword, "method"))
       Invoke(subroutineDec)
     else
       tokenerr(class)
@@ -346,7 +347,8 @@ int themain(int argc, char** argv) {
     #ifdef TOKENIZER
     char* error = EmitTokenizerXml(sr.data, &bufout);
     #else
-    char* error = compileclass((Token) {0}, sr.data, &bufout);
+    SpanResult cr = compileclass((Token) {0}, sr.data, &bufout);
+    char* error = (char*) cr.error;
     #endif
 
     if(error) {
