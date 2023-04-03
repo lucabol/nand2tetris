@@ -236,6 +236,7 @@ char* EmitTokenizerXml(Span rest, Buffer* bufout) {
 #define IsToken(_tt, _v) isToken(tok, _tt, _v)
 #define IsTypeToken  IsToken(keyword, "int") || IsToken(keyword, "char") || IsToken(keyword, "boolean") || IsToken(identifier,"")
 
+#define DECLARE(_rule) SpanResult compile ## _rule(Token tok, Span rest, Buffer* bufout); 
 #define STARTRULE(_rule) SpanResult compile ## _rule(Token tok, Span rest, Buffer* bufout) { \
   char* __funcName = #_rule; PWriteStrNL("<" #_rule ">");
 
@@ -362,7 +363,25 @@ STARTRULE(letStatement)
   ConsumeNextToken(symbol, ";")
 ENDRULE
 
+DECLARE(statements)
+
 STARTRULE(ifStatement)
+  ProcessCurrentToken
+  ConsumeNextToken(symbol,"(")
+  Invoke(expression)
+  ConsumeNextToken(symbol,")")
+
+  ConsumeNextToken(symbol,"{")
+  Invoke(statements)
+  ConsumeNextToken(symbol,"}")
+
+  NextToken
+  if(IsToken(keyword, "else")) {
+     ProcessCurrentToken
+     ConsumeNextToken(symbol, "{")
+     Invoke(statements)
+     ConsumeNextToken(symbol, "}")
+  }
 ENDRULE
 
 STARTRULE(whileStatement)
