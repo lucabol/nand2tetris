@@ -234,6 +234,7 @@ char* EmitTokenizerXml(Span rest, Buffer* bufout) {
 }
 #define ProcessCurrentToken { PWriteXmlSpan(tokenNames[tok.type], tok.value); }
 #define IsToken(_tt, _v) isToken(tok, _tt, _v)
+#define IsTypeToken  IsToken(keyword, "int") || IsToken(keyword, "char") || IsToken(keyword, "boolean") || IsToken(identifier,"")
 
 #define STARTRULE(_rule) SpanResult compile ## _rule(Token tok, Span rest, Buffer* bufout) { \
   char* __funcName = #_rule; PWriteStrNL("<" #_rule ">");
@@ -275,8 +276,7 @@ STARTRULE(classVarDec)
   NextToken;
 
   // type
-  if(IsToken(keyword, "int") || IsToken(keyword, "char") || IsToken(keyword, "boolean")
-    || IsToken(identifier,""))
+  if(IsTypeToken)
     ProcessCurrentToken
   else
     tokenerr
@@ -296,24 +296,126 @@ STARTRULE(classVarDec)
   }
 ENDRULE
 
+STARTRULE(parameterList)
+  while(true) {
+    // TODO: akward managing the ) symbol twice ...
+    NextToken
+    if(IsToken(symbol,")")) {
+      ProcessCurrentToken
+      break;
+    }
+    
+    if(IsTypeToken)
+      ProcessCurrentToken
+    else
+      tokenerr
+
+    ConsumeNextToken(identifier,"")
+
+    NextToken
+    ProcessCurrentToken
+    if(IsToken(symbol,")"))
+      break;
+    else if(IsToken(symbol,","))
+      continue;
+    else
+      tokenerr 
+  }
+ENDRULE
+
+STARTRULE(varDec)
+  ProcessCurrentToken
+
+  NextToken
+  if(IsTypeToken)
+    ProcessCurrentToken
+  else
+    tokenerr
+
+  do {
+    ConsumeNextToken(identifier,"")
+    NextToken
+    ProcessCurrentToken
+    if(IsToken(symbol,";"))
+      break;
+    else
+      continue;
+  } while(true);  
+ENDRULE
+
+STARTRULE(expression)
+ENDRULE
+
+STARTRULE(letStatement)
+  ProcessCurrentToken
+  ConsumeNextToken(identifier,"")
+
+  NextToken
+  ProcessCurrentToken
+
+  if(IsToken(symbol, "[")) {
+    Invoke(expression)
+    ConsumeNextToken(symbol,"]")
+  }
+
+  Invoke(expression)
+  ConsumeNextToken(symbol, ";")
+ENDRULE
+
+STARTRULE(ifStatement)
+ENDRULE
+
+STARTRULE(whileStatement)
+ENDRULE
+
+STARTRULE(doStatement)
+ENDRULE
+
+STARTRULE(returnStatement)
+ENDRULE
+
+STARTRULE(statements)
+  while(true) {
+    if(IsToken(keyword, "let")) Invoke(letStatement)
+    else if(IsToken(keyword, "if")) Invoke(ifStatement)
+    else if(IsToken(keyword, "while")) Invoke(whileStatement)
+    else if(IsToken(keyword, "do")) Invoke(doStatement)
+    else if(IsToken(keyword, "return")) Invoke(returnStatement)
+    else break;
+
+    NextToken
+  } 
+ENDRULE
+
+STARTRULE(subroutineBody)
+  ConsumeNextToken(symbol,"{")
+  while(true) {
+    NextToken
+    if(IsToken(keyword,"var"))
+      Invoke(varDec)
+    else
+      break;
+  }
+  Invoke(statements)
+  ConsumeNextToken(symbol,"}")
+ENDRULE
+
 STARTRULE(subroutineDec)
   ProcessCurrentToken
   NextToken;
   
   // type again, not sure why the text doesn't want to factor it out into its own function
-  if(IsToken(keyword, "int") || IsToken(keyword, "char") || IsToken(keyword, "boolean")
-    || IsToken(identifier,""))
+  if(IsTypeToken || IsToken(keyword, "void"))
     ProcessCurrentToken
   else
     tokenerr
 
   ConsumeNextToken(identifier,"")
   ConsumeNextToken(symbol,"(")
-  // Invoke parameterlist
-  ConsumeNextToken(symbol,")")
-  // Invoke subroutineBody
-
+  Invoke(parameterList)
+  Invoke(subroutineBody)
 ENDRULE
+
 
 STARTRULE(class)
   ConsumeNextToken(keyword,"class");
