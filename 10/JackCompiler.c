@@ -229,12 +229,16 @@ char* EmitTokenizerXml(Span rest, Buffer* bufout) {
   PWriteSpan(_value); PWriteStr("</"); PWriteStr(_tag); PWriteStrNL(">")
 
 #define NextToken {TokenResult tr = nextToken(rest); if(tr.error) return SPANERR(tr.error); tok = tr.token; rest = tr.rest; }
-#define ConsumeNextToken(__tt, __value) { NextToken; if(IsToken(__tt, #__value)) ProcessCurrentToken else tokenerr(aRule) }
+#define ConsumeNextToken(__tt, __value) { \
+  NextToken; if(IsToken(__tt, __value)) ProcessCurrentToken else tokenerr \
+}
 #define ProcessCurrentToken { PWriteXmlSpan(tokenNames[tok.type], tok.value); }
 #define IsToken(_tt, _v) isToken(tok, _tt, _v)
 
-#define STARTRULE(_rule) SpanResult compile ## _rule(Token tok, Span rest, Buffer* bufout) {  PWriteStrNL("<" #_rule ">");
-#define ENDRULE(_rule) PWriteStrNL("</" #_rule ">"); return SPANOK(rest.ptr, rest.len); }
+#define STARTRULE(_rule) SpanResult compile ## _rule(Token tok, Span rest, Buffer* bufout) { \
+  char* __funcName = #_rule; PWriteStrNL("<" #_rule ">");
+
+#define ENDRULE PWriteStr("</"); PWriteStr(__funcName); PWriteStrNL(">"); return SPANOK(rest.ptr, rest.len); }
 
 #define Invoke(_rule) {SpanResult sr = compile ## _rule(tok, rest, bufout); if(sr.error) return sr; rest = sr.data; }
 
@@ -247,7 +251,8 @@ char* cerror(char* startMessage, Span s1, Span s2) {
   return (char*)buf;
 }
 
-#define tokenerr(_rule) { return SPANERR(cerror("Unknown Token in rule: " #_rule, SpanFromString(tokenNames[tok.type]), tok.value)); }
+#define tokenerr { \
+  return SPANERR(cerror(__funcName, SpanFromString(tokenNames[tok.type]), tok.value)); }
 
 char* cerrorS(char* startMessage, char* s1, char* s2) {
   return cerror(startMessage, SpanFromString(s1), SpanFromString(s2));
@@ -270,13 +275,13 @@ STARTRULE(classVarDec)
   NextToken;
 
   // type
-  if(IsToken(keyword, "int") || IsToken(keyword, "char") || IsToken(keyword, "booleand")
+  if(IsToken(keyword, "int") || IsToken(keyword, "char") || IsToken(keyword, "boolean")
     || IsToken(identifier,""))
     ProcessCurrentToken
   else
-    tokenerr(classVarDec)
+    tokenerr
 
-  ConsumeNextToken(identifier,)
+  ConsumeNextToken(identifier,"")
 
   while(true) {
     NextToken;
@@ -285,20 +290,35 @@ STARTRULE(classVarDec)
       break;
   } else if(IsToken(symbol, ",")) {
       ProcessCurrentToken
-      ConsumeNextToken(identifier,)
+      ConsumeNextToken(identifier,"")
    } else
-       tokenerr(classVarDec)
+       tokenerr
   }
-ENDRULE(classVarDec)
+ENDRULE
 
 STARTRULE(subroutineDec)
+  ProcessCurrentToken
+  NextToken;
+  
+  // type again, not sure why the text doesn't want to factor it out into its own function
+  if(IsToken(keyword, "int") || IsToken(keyword, "char") || IsToken(keyword, "boolean")
+    || IsToken(identifier,""))
+    ProcessCurrentToken
+  else
+    tokenerr
 
-ENDRULE(subroutineDec)
+  ConsumeNextToken(identifier,"")
+  ConsumeNextToken(symbol,"(")
+  // Invoke parameterlist
+  ConsumeNextToken(symbol,")")
+  // Invoke subroutineBody
+
+ENDRULE
 
 STARTRULE(class)
-  ConsumeNextToken(keyword,class);
-  ConsumeNextToken(identifier,);
-  ConsumeNextToken(symbol,{);
+  ConsumeNextToken(keyword,"class");
+  ConsumeNextToken(identifier,"");
+  ConsumeNextToken(symbol,"{");
 
   while(true) {
     NextToken;
@@ -310,11 +330,11 @@ STARTRULE(class)
     else if(IsToken(keyword, "constructor") || IsToken(keyword, "function") || IsToken(keyword, "method"))
       Invoke(subroutineDec)
     else
-      tokenerr(class)
+      tokenerr
   }
 
   ProcessCurrentToken
-ENDRULE(class)
+ENDRULE
 
 /** END PARSER **/
 int themain(int argc, char** argv) {
