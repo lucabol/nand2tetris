@@ -220,29 +220,43 @@ char* EmitTokenizerXml(Span rest, Buffer* bufout) {
 
 /** PARSER **/
 
-#define PWriteSpan(_k) if(BufferCopy(_k,bufout).error) return SPANERR("Writing buffer too small")
-#define PWriteStr(_s) PWriteSpan(SpanFromString(_s))
-#define PWriteStrNL(_s) PWriteStr((_s));PWriteStr("\n")
-#define PWriteXml(_tag,_value) PWriteStr("<"); PWriteStr(_tag); PWriteStr(">"); \
-  PWriteStr(_value); PWriteStr("</"); PWriteStr(_tag); PWriteStrNL(">")
-#define PWriteXmlSpan(_tag,_value) PWriteStr("<"); PWriteStr(_tag); PWriteStr(">"); \
-  PWriteSpan(_value); PWriteStr("</"); PWriteStr(_tag); PWriteStrNL(">")
+// Make threadlocal if multithreaded
+static Token tok;
+static Span rest;
 
-#define NextToken {TokenResult tr = nextToken(rest); if(tr.error) return SPANERR(tr.error); tok = tr.token; rest = tr.rest; }
-#define ConsumeNextToken(__tt, __value) { \
-  NextToken; if(IsToken(__tt, __value)) ProcessCurrentToken else tokenerr \
-}
-#define ProcessCurrentToken { PWriteXmlSpan(tokenNames[tok.type], tok.value); }
-#define IsToken(_tt, _v) isToken(tok, _tt, _v)
-#define IsTypeToken  IsToken(keyword, "int") || IsToken(keyword, "char") || IsToken(keyword, "boolean") || IsToken(identifier,"")
+#define SM do {
+#define EM } while(0)
 
-#define DECLARE(_rule) SpanResult compile ## _rule(Token tok, Span rest, Buffer* bufout); 
-#define STARTRULE(_rule) SpanResult compile ## _rule(Token tok, Span rest, Buffer* bufout) { \
-  char* __funcName = #_rule; PWriteStrNL("<" #_rule ">");
+#define NextToken SM \
+  TokenResult tr = nextToken(rest); \
+  if(tr.error) return tr.error; \
+  tok = tr.token; rest = tr.rest; EM
 
-#define ENDRULE PWriteStr("</"); PWriteStr(__funcName); PWriteStrNL(">"); return SPANOK(rest.ptr, rest.len); }
+#define ConsumeTokenIf(__tt, __value) SM \
+  if(IsToken(__tt, __value)) WriteToken; else tokenerr; \
+  NextToken; EM
+#define ConsumeToken SM WriteToken; NextToken; EM
 
-#define Invoke(_rule) {SpanResult sr = compile ## _rule(tok, rest, bufout); if(sr.error) return sr; rest = sr.data; }
+#define ConsumeType SM if(IsType) ConsumeToken; else tokenerr; EM
+#define ConsumeIdentifier SM ConsumeTokenIf(identifier, ""); EM
+#define ConsumeKeyword(_kw) SM ConsumeTokenIf(keyword, _kw); EM
+#define ConsumeSymbol(_sy) SM ConsumeTokenIf(symbol, _sy); EM
+
+#define WriteToken SM WriteXmlSpan(tokenNames[tok.type], tok.value); EM
+
+#undef IsKeyword
+#define IsToken(_tt, _v) isToken(tok, (_tt), (_v))
+#define IsSymbol(_v) isToken(tok, symbol, (_v))
+#define IsKeyword(_v) isToken(tok, keyword, (_v))
+#define IsType  IsToken(keyword, "int") || IsToken(keyword, "char") || IsToken(keyword, "boolean") || IsToken(identifier,"")
+
+#define SIG(_rule) char* compile ## _rule(Buffer* bufout) 
+#define DECLARE(_rule) SIG(_rule);
+
+#define STARTRULE(_rule) SIG(_rule) { char* __funcName = #_rule; WriteStrNL("<" #_rule ">");
+#define ENDRULE SM WriteStr("</"); WriteStr(__funcName); WriteStrNL(">"); return NULL; EM; }
+
+#define Invoke(_rule) SM char* error = compile ## _rule(bufout); if(error) return error; EM 
 
 char* cerror(char* startMessage, Span s1, Span s2) {
   static Byte buf[1024];
@@ -253,8 +267,7 @@ char* cerror(char* startMessage, Span s1, Span s2) {
   return (char*)buf;
 }
 
-#define tokenerr { \
-  return SPANERR(cerror(__funcName, SpanFromString(tokenNames[tok.type]), tok.value)); }
+#define tokenerr SM return cerror(__funcName, SpanFromString(tokenNames[tok.type]), tok.value); EM
 
 char* cerrorS(char* startMessage, char* s1, char* s2) {
   return cerror(startMessage, SpanFromString(s1), SpanFromString(s2));
@@ -273,73 +286,52 @@ bool isToken(Token tok, TokenType tt, char* value) {
 }
 
 STARTRULE(classVarDec)
-  ProcessCurrentToken
-  NextToken;
-
-  // type
-  if(IsTypeToken)
-    ProcessCurrentToken
-  else
-    tokenerr
-
-  ConsumeNextToken(identifier,"")
+  ConsumeToken;
+  ConsumeType;
+  ConsumeIdentifier;
 
   while(true) {
-    NextToken;
-    if(IsToken(symbol, ";")) {
-      ProcessCurrentToken
+    if(IsSymbol(";")) {
+      ConsumeToken;
       break;
-  } else if(IsToken(symbol, ",")) {
-      ProcessCurrentToken
-      ConsumeNextToken(identifier,"")
+  } else if(IsSymbol(",")) {
+      ConsumeToken;
+      ConsumeIdentifier;
    } else
-       tokenerr
+       tokenerr;
   }
 ENDRULE
 
 STARTRULE(parameterList)
   while(true) {
-    // TODO: akward managing the ) symbol twice ...
-    NextToken
-    if(IsToken(symbol,")")) {
-      ProcessCurrentToken
+
+    if(IsSymbol(")")) {
       break;
     }
     
-    if(IsTypeToken)
-      ProcessCurrentToken
-    else
-      tokenerr
+    ConsumeType;
+    ConsumeIdentifier;
 
-    ConsumeNextToken(identifier,"")
-
-    NextToken
-    ProcessCurrentToken
-    if(IsToken(symbol,")"))
+    if(IsSymbol(")")) {
       break;
-    else if(IsToken(symbol,","))
+    } else if(IsSymbol(",")) {
+      ConsumeToken;
       continue;
-    else
-      tokenerr 
+    } else
+      tokenerr;
   }
 ENDRULE
 
 STARTRULE(varDec)
-  ProcessCurrentToken
-
-  NextToken
-  if(IsTypeToken)
-    ProcessCurrentToken
-  else
-    tokenerr
+  ConsumeKeyword("var");
+  ConsumeType;
 
   do {
-    ConsumeNextToken(identifier,"")
-    NextToken
-    ProcessCurrentToken
-    if(IsToken(symbol,";"))
+    ConsumeIdentifier;
+    if(IsSymbol(";")) {
+      ConsumeToken;
       break;
-    else
+    } else
       continue;
   } while(true);  
 ENDRULE
@@ -348,113 +340,116 @@ STARTRULE(expression)
 ENDRULE
 
 STARTRULE(letStatement)
-  ProcessCurrentToken
-  ConsumeNextToken(identifier,"")
+  ConsumeKeyword("let");
+  ConsumeIdentifier;
 
-  NextToken
-  ProcessCurrentToken
-
-  if(IsToken(symbol, "[")) {
-    Invoke(expression)
-    ConsumeNextToken(symbol,"]")
+  if(IsSymbol("[")) {
+    Invoke(expression);
+    ConsumeSymbol("]");
   }
 
-  Invoke(expression)
-  ConsumeNextToken(symbol, ";")
+  Invoke(expression);
+  ConsumeSymbol(";");
 ENDRULE
 
 DECLARE(statements)
 
 STARTRULE(ifStatement)
-  ProcessCurrentToken
-  ConsumeNextToken(symbol,"(")
-  Invoke(expression)
-  ConsumeNextToken(symbol,")")
+  ConsumeKeyword("if");
+  ConsumeSymbol("(");
+  Invoke(expression);
+  ConsumeSymbol(")");
 
-  ConsumeNextToken(symbol,"{")
-  Invoke(statements)
-  ConsumeNextToken(symbol,"}")
+  ConsumeSymbol("{");
+  Invoke(statements);
+  ConsumeSymbol("}");
 
-  NextToken
-  if(IsToken(keyword, "else")) {
-     ProcessCurrentToken
-     ConsumeNextToken(symbol, "{")
-     Invoke(statements)
-     ConsumeNextToken(symbol, "}")
+  if(IsKeyword("else")) {
+     ConsumeToken;
+     ConsumeSymbol("{");
+     Invoke(statements);
+     ConsumeSymbol("}");
   }
 ENDRULE
 
 STARTRULE(whileStatement)
+  ConsumeKeyword("while");
+
+  ConsumeSymbol("(");
+  Invoke(expression);
+  ConsumeSymbol(")");
+
+  ConsumeSymbol("{");
+  Invoke(statements);
+  ConsumeSymbol("}");
 ENDRULE
 
 STARTRULE(doStatement)
 ENDRULE
 
 STARTRULE(returnStatement)
+
 ENDRULE
 
 STARTRULE(statements)
   while(true) {
-    if(IsToken(keyword, "let")) Invoke(letStatement)
-    else if(IsToken(keyword, "if")) Invoke(ifStatement)
-    else if(IsToken(keyword, "while")) Invoke(whileStatement)
-    else if(IsToken(keyword, "do")) Invoke(doStatement)
-    else if(IsToken(keyword, "return")) Invoke(returnStatement)
+    if(IsKeyword("let")) Invoke(letStatement);
+    else if(IsKeyword("if")) Invoke(ifStatement);
+    else if(IsKeyword("while")) Invoke(whileStatement);
+    else if(IsKeyword("do")) Invoke(doStatement);
+    else if(IsKeyword("return")) Invoke(returnStatement);
     else break;
-
-    NextToken
   } 
 ENDRULE
 
 STARTRULE(subroutineBody)
-  ConsumeNextToken(symbol,"{")
+  ConsumeSymbol("{");
   while(true) {
-    NextToken
     if(IsToken(keyword,"var"))
-      Invoke(varDec)
+      Invoke(varDec);
     else
       break;
   }
-  Invoke(statements)
-  ConsumeNextToken(symbol,"}")
+  Invoke(statements);
+  ConsumeSymbol("}");
 ENDRULE
 
 STARTRULE(subroutineDec)
-  ProcessCurrentToken
-  NextToken;
+  ConsumeToken;
   
-  // type again, not sure why the text doesn't want to factor it out into its own function
-  if(IsTypeToken || IsToken(keyword, "void"))
-    ProcessCurrentToken
-  else
-    tokenerr
+  if(IsType || IsToken(keyword, "void")) {
+    ConsumeToken;
+  } else
+      tokenerr;
 
-  ConsumeNextToken(identifier,"")
-  ConsumeNextToken(symbol,"(")
-  Invoke(parameterList)
-  Invoke(subroutineBody)
+  ConsumeIdentifier;
+  ConsumeSymbol("(");
+  Invoke(parameterList);
+  ConsumeSymbol(")");
+  Invoke(subroutineBody);
 ENDRULE
 
 
 STARTRULE(class)
-  ConsumeNextToken(keyword,"class");
-  ConsumeNextToken(identifier,"");
-  ConsumeNextToken(symbol,"{");
+  NextToken;
+
+  ConsumeKeyword("class");
+  ConsumeIdentifier;
+  ConsumeSymbol("{");
 
   while(true) {
-    NextToken;
 
-    if(IsToken(symbol,"}"))
+    if(IsSymbol("}"))
       break;
-    else if(IsToken(keyword, "static") || IsToken(keyword, "field"))
-      Invoke(classVarDec)
-    else if(IsToken(keyword, "constructor") || IsToken(keyword, "function") || IsToken(keyword, "method"))
-      Invoke(subroutineDec)
+    else if(IsKeyword("static") || IsKeyword("field"))
+      Invoke(classVarDec);
+    else if(IsKeyword("constructor") || IsKeyword("function") || IsKeyword("method"))
+      Invoke(subroutineDec);
     else
-      tokenerr
+      tokenerr;
   }
 
-  ProcessCurrentToken
+  ConsumeSymbol("}");
 ENDRULE
 
 /** END PARSER **/
@@ -488,8 +483,8 @@ int themain(int argc, char** argv) {
     #ifdef TOKENIZER
     char* error = EmitTokenizerXml(sr.data, &bufout);
     #else
-    SpanResult cr = compileclass((Token) {0}, sr.data, &bufout);
-    char* error = (char*) cr.error;
+    rest = sr.data;
+    char* error = compileclass(&bufout);
     #endif
 
     if(error) {

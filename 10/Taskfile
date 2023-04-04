@@ -33,6 +33,7 @@ function test {      # Run tokenizer test data
   for v in ./Square/Square ./Square/Main ./Square/SquareGame ./ArrayTest/Main
   do
     ./JackCompiler ${v}.jack
+    echo -n "${v} : "
     ../../tools/TextComparer.sh ${v}.xml ${v}.vm 
   done
 }
