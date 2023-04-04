@@ -30,7 +30,7 @@ function testt {      # Run tokenizer test data
 
 function test {      # Run tokenizer test data
   buildg
-  for v in ./Square/Square ./Square/Main ./Square/SquareGame ./ArrayTest/Main
+  for v in ./Square/Square ./Square/Main ./Square/SquareGame ./ExpressionLessSquare/Square ./ExpressionLessSquare/Main ./ExpressionLessSquare/SquareGame ./ArrayTest/Main
   do
     ./JackCompiler ${v}.jack
     echo -n "${v} : "
