@@ -291,52 +291,35 @@ STARTRULE(classVarDec)
   ConsumeType;
   ConsumeIdentifier;
 
-  while(true) {
-    if(IsSymbol(";")) {
-      ConsumeToken;
-      break;
-  } else if(IsSymbol(",")) {
-      ConsumeToken;
+  while(!IsSymbol(";")) {
+      ConsumeSymbol(",");
       ConsumeIdentifier;
-   } else
-       tokenerr;
   }
+  ConsumeToken;
 ENDRULE
 
 STARTRULE(parameterList)
-  while(true) {
+  while(!IsSymbol(")")) {
 
-    if(IsSymbol(")")) {
-      break;
-    }
-    
     ConsumeType;
     ConsumeIdentifier;
 
-    if(IsSymbol(")")) {
-      break;
-    } else if(IsSymbol(",")) {
+    if(IsSymbol(",")) {
       ConsumeToken;
-      continue;
-    } else
-      tokenerr;
+    }
   }
 ENDRULE
 
 STARTRULE(varDec)
   ConsumeKeyword("var");
   ConsumeType;
+  ConsumeIdentifier;
 
-  while(true) {
+  while(!IsSymbol(";")) {
+    ConsumeSymbol(",");
     ConsumeIdentifier;
-    if(IsSymbol(";")) {
-      ConsumeToken;
-      break;
-    } else if(IsSymbol(",")) {
-      ConsumeToken;
-      continue;
-   } else tokenerr;
-  } 
+  }
+  ConsumeToken;
 ENDRULE
 
 DECLARE(expression);
@@ -376,29 +359,18 @@ ENDRULE
 
 STARTRULE(expression)
   Invoke(term);
-  while(true) {
-    if(IsSymbol("+") || IsSymbol("-") || IsSymbol("*") || IsSymbol("/") || IsSymbol("&") ||
+  while(IsSymbol("+") || IsSymbol("-") || IsSymbol("*") || IsSymbol("/") || IsSymbol("&") ||
                  IsSymbol("|") || IsSymbol("<") || IsSymbol(">") || IsSymbol("=")) {
       ConsumeToken;
       Invoke(term);
-    } else {
-      break;
     }
-  }
 ENDRULE
 
 STARTRULE(expressionList)
-  while(true) {
-    if(IsSymbol(")")) {
-      break;
-    }
+  while(!IsSymbol(")")) {
     Invoke(expression);
-    if(IsSymbol(")")) {
-      break;
-    } else if(IsSymbol(",")) {
+    if(IsSymbol(","))
       ConsumeToken;
-      continue;
-    } else tokenerr;
   }
 ENDRULE
 
@@ -490,12 +462,8 @@ ENDRULE
 
 STARTRULE(subroutineBody)
   ConsumeSymbol("{");
-  while(true) {
-    if(IsToken(keyword,"var"))
+  while(IsKeyword("var"))
       Invoke(varDec);
-    else
-      break;
-  }
   Invoke(statements);
   ConsumeSymbol("}");
 ENDRULE
@@ -517,17 +485,15 @@ ENDRULE
 
 
 STARTRULE(class)
-  NextToken;
+  NextToken; // Just one class x file, trivial to extend to multiple ones
 
   ConsumeKeyword("class");
   ConsumeIdentifier;
   ConsumeSymbol("{");
 
-  while(true) {
+  while(!IsSymbol("}")) {
 
-    if(IsSymbol("}"))
-      break;
-    else if(IsKeyword("static") || IsKeyword("field"))
+    if(IsKeyword("static") || IsKeyword("field"))
       Invoke(classVarDec);
     else if(IsKeyword("constructor") || IsKeyword("function") || IsKeyword("method"))
       Invoke(subroutineDec);
@@ -535,11 +501,12 @@ STARTRULE(class)
       tokenerr;
   }
 
-  ConsumeSymbol("}");
+  ConsumeToken;
 ENDRULE
 
-
 /** END PARSER **/
+
+/** MAIN LOOP **/
 int themain(int argc, char** argv) {
   if(argc == 1) {
     fprintf(stderr, "Usage: %s <jack_files>\n", argv[0]);
