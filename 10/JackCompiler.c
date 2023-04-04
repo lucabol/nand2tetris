@@ -223,6 +223,7 @@ char* EmitTokenizerXml(Span rest, Buffer* bufout) {
 // Make threadlocal if multithreaded
 static Token tok;
 static Span rest;
+static char* filePath;
 
 #define SM do {
 #define EM } while(0)
@@ -242,7 +243,7 @@ static Span rest;
 #define ConsumeKeyword(_kw) SM ConsumeTokenIf(keyword, _kw); EM
 #define ConsumeSymbol(_sy) SM ConsumeTokenIf(symbol, _sy); EM
 
-#define WriteToken SM WriteXmlSpan(tokenNames[tok.type], tok.value); EM
+#define WriteToken SM WriteXmlSpan(tokenNames[tok.type], xmlNormalize(tok.value)); EM
 
 #undef IsKeyword
 #define IsToken(_tt, _v) isToken(tok, (_tt), (_v))
@@ -250,10 +251,9 @@ static Span rest;
 #define IsKeyword(_v) isToken(tok, keyword, (_v))
 #define IsType  IsToken(keyword, "int") || IsToken(keyword, "char") || IsToken(keyword, "boolean") || IsToken(identifier,"")
 
-#define SIG(_rule) char* compile ## _rule(Buffer* bufout) 
-#define DECLARE(_rule) SIG(_rule);
+#define DECLARE(_rule) char* compile ## _rule(Buffer* bufout) 
 
-#define STARTRULE(_rule) SIG(_rule) { char* __funcName = #_rule; WriteStrNL("<" #_rule ">");
+#define STARTRULE(_rule) DECLARE(_rule) { char* __funcName = #_rule; WriteStrNL("<" #_rule ">");
 #define ENDRULE SM WriteStr("</"); WriteStr(__funcName); WriteStrNL(">"); return NULL; EM; }
 
 #define Invoke(_rule) SM char* error = compile ## _rule(bufout); if(error) return error; EM 
@@ -262,6 +262,7 @@ char* cerror(char* startMessage, Span s1, Span s2) {
   static Byte buf[1024];
   Buffer bufo = BufferInit(buf, sizeof(buf));
   Buffer* bufout = &bufo;
+  WriteStr(filePath); WriteStr(" : ");
   WriteStr(startMessage); WriteStr(" : "); WriteSpan(s1); WriteStr(" ");WriteSpan(s2); WriteStrNL("");
   bufo.data.ptr[bufo.index] = 0;
   return (char*)buf;
@@ -326,17 +327,79 @@ STARTRULE(varDec)
   ConsumeKeyword("var");
   ConsumeType;
 
-  do {
+  while(true) {
     ConsumeIdentifier;
     if(IsSymbol(";")) {
       ConsumeToken;
       break;
-    } else
+    } else if(IsSymbol(",")) {
+      ConsumeToken;
       continue;
-  } while(true);  
+   } else tokenerr;
+  } 
+ENDRULE
+
+DECLARE(expression);
+DECLARE(expressionList);
+
+STARTRULE(term)
+  if(IsToken(integerConstant,"") || IsToken(stringConstant, "")) {
+    ConsumeToken;
+  } else if(IsKeyword("true") || IsKeyword("false") || IsKeyword("null") || IsKeyword("this")) {
+    ConsumeToken;
+  } else if(IsToken(identifier,"")) { // can be a varName, array, subroutine call or method call (with '.')
+    ConsumeToken;
+    if(IsSymbol("[")) {
+      ConsumeToken;
+      Invoke(expression);
+      ConsumeSymbol("]");
+    } else if(IsSymbol("(")) {
+      ConsumeToken;
+      Invoke(expressionList);
+      ConsumeSymbol(")");
+    } else if(IsSymbol(".")) {
+      ConsumeToken;
+      ConsumeIdentifier;
+      ConsumeSymbol("(");
+      Invoke(expressionList);
+      ConsumeSymbol(")");
+    }
+  } else if(IsSymbol("(")) {
+    ConsumeToken;
+    Invoke(expression);
+    ConsumeSymbol(")");
+  } else if(IsSymbol("-") || IsSymbol("~")){
+    ConsumeToken;
+    Invoke(term);
+  } else tokenerr;
 ENDRULE
 
 STARTRULE(expression)
+  Invoke(term);
+  while(true) {
+    if(IsSymbol("+") || IsSymbol("-") || IsSymbol("*") || IsSymbol("/") || IsSymbol("&") ||
+                 IsSymbol("|") || IsSymbol("<") || IsSymbol(">") || IsSymbol("=")) {
+      ConsumeToken;
+      Invoke(term);
+    } else {
+      break;
+    }
+  }
+ENDRULE
+
+STARTRULE(expressionList)
+  while(true) {
+    if(IsSymbol(")")) {
+      break;
+    }
+    Invoke(expression);
+    if(IsSymbol(")")) {
+      break;
+    } else if(IsSymbol(",")) {
+      ConsumeToken;
+      continue;
+    } else tokenerr;
+  }
 ENDRULE
 
 STARTRULE(letStatement)
@@ -344,15 +407,17 @@ STARTRULE(letStatement)
   ConsumeIdentifier;
 
   if(IsSymbol("[")) {
+    ConsumeToken;
     Invoke(expression);
     ConsumeSymbol("]");
   }
 
+  ConsumeSymbol("=");
   Invoke(expression);
   ConsumeSymbol(";");
 ENDRULE
 
-DECLARE(statements)
+DECLARE(statements);
 
 STARTRULE(ifStatement)
   ConsumeKeyword("if");
@@ -385,10 +450,31 @@ STARTRULE(whileStatement)
 ENDRULE
 
 STARTRULE(doStatement)
+  ConsumeKeyword("do");
+  ConsumeIdentifier;
+  if(IsSymbol("[")) {
+    ConsumeToken;
+    Invoke(expression);
+    ConsumeSymbol("]");
+  } else if(IsSymbol("(")) {
+    ConsumeToken;
+    Invoke(expressionList);
+    ConsumeSymbol(")");
+  } else if(IsSymbol(".")) {
+    ConsumeToken;
+    ConsumeIdentifier;
+    ConsumeSymbol("(");
+    Invoke(expressionList);
+    ConsumeSymbol(")");
+  }
+  ConsumeSymbol(";");
 ENDRULE
 
 STARTRULE(returnStatement)
-
+  ConsumeKeyword("return");
+  if(!IsSymbol(";"))
+    Invoke(expression);
+  ConsumeSymbol(";");
 ENDRULE
 
 STARTRULE(statements)
@@ -452,6 +538,7 @@ STARTRULE(class)
   ConsumeSymbol("}");
 ENDRULE
 
+
 /** END PARSER **/
 int themain(int argc, char** argv) {
   if(argc == 1) {
@@ -471,7 +558,7 @@ int themain(int argc, char** argv) {
     static Byte filein [MAXFILESIZE];
     Buffer bufin  = BufferInit(filein , MAXFILESIZE);
 
-    char* filePath = argv[i];
+    filePath = argv[i];
 
     // Load input file
     SpanResult sr = OsSlurp(filePath, MAXFILESIZE, &bufin);
