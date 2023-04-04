@@ -14,7 +14,7 @@ function buildtf {    # Build tokenizer fast
   musl-clang -DTOKENIZER $CFLAGS  -Ofast -flto -static JackCompiler.c -o JackCompilerT_cl
   musl-gcc -DTOKENIZER $CFLAGS -Ofast -fwhole-program -static JackCompiler.c -o JackCompilerT_mg
 }
-function buildf {    # Build tokenizer fast
+function buildf {    # Build parser
   musl-clang $CFLAGS  -Ofast -flto -static JackCompiler.c -o JackCompiler_cl
   musl-gcc $CFLAGS -Ofast -fwhole-program -static JackCompiler.c -o JackCompiler_mg
 }
