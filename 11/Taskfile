@@ -1,0 +1,71 @@
+#!/bin/bash
+
+CFLAGS='-Wall -Wextra -Wpedantic -std=c99'
+
+function buildstg {    # Build symbol table debug
+  gcc $CFLAGS -g JackCompilerST.c -o JackCompilerST
+}
+
+function buildg {    # Build parser debug
+  gcc $CFLAGS -g JackCompiler.c -o JackCompiler
+}
+
+function buildtf {    # Build symbol table fast
+  musl-clang  $CFLAGS  -Ofast -flto -static JackCompilerST.c -o JackCompilerST_cl
+  musl-gcc  $CFLAGS -Ofast -fwhole-program -static JackCompilerST.c -o JackCompilerST_mg
+}
+function buildf {    # Build parser
+  musl-clang $CFLAGS  -Ofast -flto -static JackCompiler.c -o JackCompiler_cl
+  musl-gcc $CFLAGS -Ofast -fwhole-program -static JackCompiler.c -o JackCompiler_mg
+}
+
+function testst {      # Run symbol table test data
+  buildstg
+  for v in ./Square/Square ./Square/Main ./Square/SquareGame
+  do
+    ./JackCompilerST ${v}.jack
+  done
+}
+
+function test {      # Run test data
+  buildg
+  for v in ./Square/Square ./Square/Main ./Square/SquareGame ./ExpressionLessSquare/Square ./ExpressionLessSquare/Main ./ExpressionLessSquare/SquareGame ./ArrayTest/Main
+  do
+    ./JackCompiler ${v}.jack
+    echo -n "${v} : "
+    ../../tools/TextComparer.sh ${v}.xml ${v}.vm 
+  done
+}
+
+function lc {       # Count lines of code
+  wc -l JackCompiler.c
+  wc -l rust/*.rs
+  wc -l java/*.java
+}
+
+function perf {   # Perf test
+  hyperfine --warmup 5 "./JackCompiler_cl FunctionCalls/FibonacciElement/*.JackCompiler" "./JackCompiler_mg FunctionCalls/FibonacciElement/*.JackCompiler" "./rustJackCompiler FunctionCalls/FibonacciElement" "java JackCompilertranslator FunctionCalls/FibonacciElement"
+}
+
+function memrust {    # Test memory consumption
+  valgrind --tool=massif --massif-out-file=rustJackCompiler.massif --stacks=yes  ./rustJackCompiler FunctionCalls/FibonacciElement
+  ms_print rustJackCompiler.massif | bat
+}
+function memc {    # Test memory consumption
+  valgrind --tool=massif --massif-out-file=JackCompiler_cl.massif --stacks=yes  ./JackCompiler_cl FunctionCalls/FibonacciElement/*.JackCompiler
+  ms_print JackCompiler_cl.massif | bat
+}
+function help {     # Prints help
+    echo "Usage: $0 <task> <args>"
+    echo "Execute a task with the specified arguments."
+    echo "By adding 'alias run=./Taskfile' you can then call it as 'run <task> <args>"
+    echo
+    echo "Tasks:"
+    grep '^function .* #.* ' Taskfile | # Start with function and has # somewhere
+      cut -d' ' -f 2- |                 # Remove the word 'function'
+      tr -d '{' |                       # Remove '{}'
+      sed 's/^/  /g' |                  # Indent by two spaces
+      column --table --separator '#'    # column it using # as the separator
+}
+
+${@:-help}
