@@ -29,11 +29,10 @@ function testst {      # Run symbol table test data
 
 function test {      # Run test data
   buildg
-  for v in ./Square/Square ./Square/Main ./Square/SquareGame ./ExpressionLessSquare/Square ./ExpressionLessSquare/Main ./ExpressionLessSquare/SquareGame ./ArrayTest/Main
+  for v in ./Seven/Main ./Square/Square ./Square/Main ./Square/SquareGame
   do
     ./JackCompiler ${v}.jack
     echo -n "${v} : "
-    ../../tools/TextComparer.sh ${v}.xml ${v}.vm 
   done
 }
 

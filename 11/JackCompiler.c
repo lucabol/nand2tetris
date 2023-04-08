@@ -248,7 +248,6 @@ typedef struct {
   int16_t argCount;
 } SymbolTable;
 
-// Returns false if too many items in the hashtable
 char* STAdd(SymbolTable* st, Span symbol, Span type, Span kind, Size num) {
   assert(st);
   assert(SpanValid(symbol));
@@ -268,7 +267,6 @@ char* STAdd(SymbolTable* st, Span symbol, Span type, Span kind, Size num) {
     }
   }
 }
-// Returns -1 if symbol not present
 Entry* STGet(SymbolTable* st, Span symbol) {
   assert(st);
   assert(SpanValid(symbol));
@@ -304,18 +302,59 @@ int16_t STCount(SymbolTable* st, Span kind) {
 #define SaveVar Span kind = S("var")
 #define StAdd(_st) SM; char* err = STAdd(&_st, symb, type, kind, STCount(&_st, kind)); if(err) return err; EM
 
-// Not multithread safe
 static SymbolTable StClass;
 static SymbolTable StSubroutine;
 
+Entry* STLookup(Span symbol) {
+  Entry* ret   = STGet(&StClass, symbol);
+  if(!ret) ret = STGet(&StSubroutine, symbol); 
+  return ret;
+}
+
 /** END SYMBOL TABLE **/
+
+/** EMITTER **/
+
+Span kindToSeg(Span k) {
+  #define KTS(kind,seg) if(SpanEqual(S(#kind), k)) return S(#seg)
+  KTS(static,static);
+  KTS(field,this);
+  KTS(arg,argument);
+  KTS(var,local);
+  return k;
+}
+#define Push(kind, idx) SM WriteStr("push "); WriteSpan(kindToSeg(kind)); WriteStr(" "); \
+  WriteSpan(SpanFromUlong(idx)); WriteStrNL(""); EM
+#define Pop(kind, idx) SM WriteStr("pop "); WriteSpan(kindToSeg(kind)); WriteStr(" "); \
+  WriteSpan(SpanFromUlong(idx)); WriteStrNL(""); EM
+
+#define PushEntry(e) Push(e->kind, e->num)
+#define PopEntry(e)  Pop(e->kind, e->num)
+
+#define Arith(s)      SM WriteStrNL(#s); EM
+#define Label(s)      SM WriteStr("label "); WriteStrNL(#s); EM
+#define Goto(s)       SM WriteStr("goto "); WriteStrNL(#s); EM
+#define If(s)         SM WriteStr("if-goto "); WriteStrNL(#s); EM
+
+#define Call(s,n)     SM WriteStr("call "); WriteStr(#s); WriteSpan(SpanFromUlong(n)); WriteStrNL(""); EM
+#define CallC(c, m,n) SM WriteStr("call "); WriteSpan(c); WriteStr("."); WriteSpan(m); \
+  WriteStr(" "); WriteSpan(SpanFromUlong(n)); WriteStrNL(""); EM
+
+#define FunctionName(s) SM WriteStr("function "); WriteSpan(baseName); \
+  WriteStr("."); WriteSpan(s); WriteStr(" "); EM
+#define FunctionParams(n) SM WriteSpan(SpanFromUlong(n)); WriteStrNL(""); EM
+
+#define Return        SM WriteStrNL("return"); EM
+
+/** END EMITTER **/
 
 /** PARSER **/
 
 // Make threadlocal if multithreaded
 static Token tok;
 static Span rest;
-static char* filePath;
+static Span baseName;
+
 
 #define NextToken SM \
   TokenResult tr = nextToken(rest); \
@@ -323,24 +362,13 @@ static char* filePath;
   tok = tr.token; rest = tr.rest; EM
 
 #define ConsumeTokenIf(__tt, __value) SM \
-  if(IsToken(__tt, __value)) WriteToken; else tokenerr; \
-  NextToken; EM
-#define ConsumeToken SM WriteToken; NextToken; EM
-
-#define WriteEntry(_st) WriteStr("<" #_st ">");WriteSpan(entry->kind);WriteSpan(entry->type);WriteSpan(SpanFromUlong(entry->num)); WriteStrNL("</StClass>")
-#define FromST SM Entry* entry; \
-  if((entry = STGet(&StClass, tok.value))) { \
-    WriteEntry(StClass);\
-  } else if((entry = STGet(&StSubroutine, tok.value))) { \
-    WriteEntry(StSubroutine);\
-  } else { WriteXmlSpan("DeclareOrClassFuncName", tok.value); } EM
+  if(IsToken(__tt, __value)) NextToken; else tokenerr; EM
+#define ConsumeToken SM NextToken; EM
 
 #define ConsumeType SM if(IsType) ConsumeToken; else tokenerr; EM
-#define ConsumeIdentifier SM FromST; ConsumeTokenIf(identifier, ""); EM
+#define ConsumeIdentifier SM ConsumeTokenIf(identifier, ""); EM
 #define ConsumeKeyword(_kw) SM ConsumeTokenIf(keyword, _kw); EM
 #define ConsumeSymbol(_sy) SM ConsumeTokenIf(symbol, _sy); EM
-
-#define WriteToken SM WriteXmlSpan(tokenNames[tok.type], xmlNormalize(tok.value)); EM
 
 #undef IsKeyword
 #define IsToken(_tt, _v) isToken(tok, (_tt), (_v))
@@ -350,16 +378,23 @@ static char* filePath;
 
 #define DECLARE(_rule) char* compile ## _rule(Buffer* bufout) 
 
-#define STARTRULE(_rule) DECLARE(_rule) { char* __funcName = #_rule; WriteStrNL("<" #_rule ">");
-#define ENDRULE SM WriteStr("</"); WriteStr(__funcName); WriteStrNL(">"); return NULL; EM; }
+#define STARTRULE(_rule) DECLARE(_rule) { char* __funcName = #_rule;
+#define ENDRULE SM return NULL; EM; }
 
 #define Invoke(_rule) SM char* error = compile ## _rule(bufout); if(error) return error; EM 
+
+// TODO: need to refactor the whole thing to avoid all this static mess
+static int __sArgs = -1;
+#define InvokeExpressionList \
+  Invoke(expressionList); \
+  int nArgs = __sArgs
+
 
 char* cerror(char* startMessage, Span s1, Span s2) {
   static Byte buf[1024];
   Buffer bufo = BufferInit(buf, sizeof(buf));
   Buffer* bufout = &bufo;
-  WriteStr(filePath); WriteStr(" : ");
+  WriteSpan(baseName); WriteStr(" : ");
   WriteStr(startMessage); WriteStr(" : "); WriteSpan(s1); WriteStr(" ");WriteSpan(s2); WriteStrNL("");
   bufo.data.ptr[bufo.index] = 0;
   return (char*)buf;
@@ -432,27 +467,55 @@ ENDRULE
 DECLARE(expression);
 DECLARE(expressionList);
 
+Span ConstToStr(Span c) {
+  #define CTS(_c, _s) if(SpanEqual(S(_c),c)) return S(_s)
+  CTS("null", "push constant 0");
+  CTS("false", "push constant 0");
+  CTS("true", "push constant 1\nneg");
+  CTS("this", "push pointer 0");
+  return S("ERROR");
+}
+
 STARTRULE(term)
-  if(IsToken(integerConstant,"") || IsToken(stringConstant, "")) {
+  if(IsToken(integerConstant,"")) {
+    Push(S("constant"),SpanToUlong(tok.value));
+    ConsumeToken;
+  } else if(IsToken(stringConstant,"")) {
+    Push(S("constant"), tok.value.len);
+    Call("String.new", 1);
+    for(Size i = 0; i < tok.value.len; i++) {
+      Push(S("constant"), tok.value.ptr[i]);
+      Call("String.appendChar", 1);
+    }
     ConsumeToken;
   } else if(IsKeyword("true") || IsKeyword("false") || IsKeyword("null") || IsKeyword("this")) {
+    WriteSpan(ConstToStr(tok.value)); WriteStrNL("");
     ConsumeToken;
   } else if(IsToken(identifier,"")) { // can be a varName, array, subroutine call or method call (with '.')
+    Span startId = tok.value;
+    Entry* stFound = STLookup(startId);
     ConsumeIdentifier;
+
     if(IsSymbol("[")) {
       ConsumeToken;
       Invoke(expression);
       ConsumeSymbol("]");
     } else if(IsSymbol("(")) {
       ConsumeToken;
-      Invoke(expressionList);
+      InvokeExpressionList;
       ConsumeSymbol(")");
     } else if(IsSymbol(".")) {
       ConsumeToken;
+      Span funcOrMethod = tok.value;
       ConsumeIdentifier;
       ConsumeSymbol("(");
-      Invoke(expressionList);
+      InvokeExpressionList;
       ConsumeSymbol(")");
+
+      if(stFound) { // method call, push the object first
+        PushEntry(stFound);
+      }
+      CallC(startId, funcOrMethod, nArgs);
     }
   } else if(IsSymbol("(")) {
     ConsumeToken;
@@ -464,17 +527,36 @@ STARTRULE(term)
   } else tokenerr;
 ENDRULE
 
+Span OpToStr(Span c) {
+  #define OTS(_c, _s) if(SpanEqual(S(_c),c)) return S(_s)
+  OTS("+", "add");
+  OTS("-", "sub");
+  OTS("*", "call Math.multiply 2");
+  OTS("/", "call Math.divide 2");
+  OTS("&", "and");
+  OTS("|", "or");
+  OTS("<", "less");
+  OTS(">", "more");
+  OTS("=", "equal");
+  return S("ERROR");
+}
 STARTRULE(expression)
   Invoke(term);
   while(IsSymbol("+") || IsSymbol("-") || IsSymbol("*") || IsSymbol("/") || IsSymbol("&") ||
                  IsSymbol("|") || IsSymbol("<") || IsSymbol(">") || IsSymbol("=")) {
+      Span op = OpToStr(tok.value);
       ConsumeToken;
+
       Invoke(term);
+
+      WriteSpan(op); WriteStrNL("");
     }
 ENDRULE
 
 STARTRULE(expressionList)
+  __sArgs = 0;
   while(!IsSymbol(")")) {
+    __sArgs++;
     Invoke(expression);
     if(IsSymbol(","))
       ConsumeToken;
@@ -530,22 +612,8 @@ ENDRULE
 
 STARTRULE(doStatement)
   ConsumeKeyword("do");
-  ConsumeIdentifier;
-  if(IsSymbol("[")) {
-    ConsumeToken;
-    Invoke(expression);
-    ConsumeSymbol("]");
-  } else if(IsSymbol("(")) {
-    ConsumeToken;
-    Invoke(expressionList);
-    ConsumeSymbol(")");
-  } else if(IsSymbol(".")) {
-    ConsumeToken;
-    ConsumeIdentifier;
-    ConsumeSymbol("(");
-    Invoke(expressionList);
-    ConsumeSymbol(")");
-  }
+  Invoke(expression);
+  Pop(S("temp"), 0);
   ConsumeSymbol(";");
 ENDRULE
 
@@ -554,6 +622,7 @@ STARTRULE(returnStatement)
   if(!IsSymbol(";"))
     Invoke(expression);
   ConsumeSymbol(";");
+  Return;
 ENDRULE
 
 STARTRULE(statements)
@@ -569,15 +638,21 @@ ENDRULE
 
 STARTRULE(subroutineBody)
   ConsumeSymbol("{");
-  while(IsKeyword("var"))
-      Invoke(varDec);
+
+  int vars = 0;
+  while(IsKeyword("var")) {
+    vars++;
+    Invoke(varDec);
+  }
+  FunctionParams(vars);
+
   Invoke(statements);
   ConsumeSymbol("}");
 ENDRULE
 
 STARTRULE(subroutineDec)
 
-  // Reset subruting symbol table when declaring new subroutine.
+  // Reset subroutine symbol table when declaring new subroutine.
   STInit(&StSubroutine);
 
   ConsumeToken;
@@ -587,7 +662,9 @@ STARTRULE(subroutineDec)
   } else
       tokenerr;
 
+  FunctionName(tok.value);
   ConsumeIdentifier;
+
   ConsumeSymbol("(");
   Invoke(parameterList);
   ConsumeSymbol(")");
@@ -641,7 +718,23 @@ int themain(int argc, char** argv) {
     static Byte filein [MAXFILESIZE];
     Buffer bufin  = BufferInit(filein , MAXFILESIZE);
 
-    filePath = argv[i];
+    char* filePath = argv[i];
+
+    // Craft output file name
+    Byte newName[1024];
+    Buffer fileNameBuf = BufferInit(newName, sizeof(newName));
+    Span oldName = SpanFromString(filePath);
+    Span withoutExt = SpanRCut(oldName, '.').head;
+
+    baseName = SpanRCut(withoutExt, '/').tail;
+
+    BufferCopy(withoutExt, &fileNameBuf);
+
+    #ifdef TOKENIZER
+    BufferCopy(S("T.vm"), &fileNameBuf);
+    #else
+    BufferCopy(S(".vm"), &fileNameBuf);
+    #endif
 
     // Load input file
     SpanResult sr = OsSlurp(filePath, MAXFILESIZE, &bufin);
@@ -662,25 +755,11 @@ int themain(int argc, char** argv) {
       //return -1;
     }
 
-    // Produce output file
     Span s = BufferToSpan(&bufout);
 
-    Byte newName[1024];
-    Buffer nbuf = BufferInit(newName, sizeof(newName));
-    Span oldName = SpanFromString(filePath);
-    Span withoutExt = SpanRCut(oldName, '.').head; // just for linux
+    BufferPushByte(&fileNameBuf, 0); // make it a proper 0 terminated string
 
-    BufferCopy(withoutExt, &nbuf);
-
-    #ifdef TOKENIZER
-    BufferCopy(S("T.vm"), &nbuf);
-    #else
-    BufferCopy(S(".vm"), &nbuf);
-    #endif
-
-    BufferPushByte(&nbuf, 0); // make it a proper 0 terminated string
-
-    char* writeError = OsFlash((char*)BufferToSpan(&nbuf).ptr, s);
+    char* writeError = OsFlash((char*)BufferToSpan(&fileNameBuf).ptr, s);
     if(writeError) {
       fprintf(stderr, "%s\n", writeError);
       return -1;
