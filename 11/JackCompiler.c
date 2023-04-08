@@ -311,6 +311,10 @@ Entry* STLookup(Span symbol) {
   return ret;
 }
 
+#define CheckStLookup(_n, _v) \
+  Entry* _n = STLookup(_v); \
+  if(!_n) return cerror("Left side of assignment not in the symbol table", S(#_n), _v);
+
 /** END SYMBOL TABLE **/
 
 /** EMITTER **/
@@ -378,7 +382,7 @@ static Span baseName;
 
 #define DECLARE(_rule) char* compile ## _rule(Buffer* bufout) 
 
-#define STARTRULE(_rule) DECLARE(_rule) { char* __funcName = #_rule;
+#define STARTRULE(_rule) DECLARE(_rule) { char* __funcName = #_rule; (void)bufout; (void) __funcName;
 #define ENDRULE SM return NULL; EM; }
 
 #define Invoke(_rule) SM char* error = compile ## _rule(bufout); if(error) return error; EM 
@@ -387,7 +391,7 @@ static Span baseName;
 static int __sArgs = -1;
 #define InvokeExpressionList \
   Invoke(expressionList); \
-  int nArgs = __sArgs
+  int nArgs = __sArgs; (void)nArgs
 
 
 char* cerror(char* startMessage, Span s1, Span s2) {
@@ -496,15 +500,15 @@ STARTRULE(term)
     Entry* stFound = STLookup(startId);
     ConsumeIdentifier;
 
-    if(IsSymbol("[")) {
+    if(IsSymbol("[")) { // Array
       ConsumeToken;
       Invoke(expression);
       ConsumeSymbol("]");
-    } else if(IsSymbol("(")) {
+    } else if(IsSymbol("(")) { // parenthesised expr
       ConsumeToken;
       InvokeExpressionList;
       ConsumeSymbol(")");
-    } else if(IsSymbol(".")) {
+    } else if(IsSymbol(".")) { // func or method
       ConsumeToken;
       Span funcOrMethod = tok.value;
       ConsumeIdentifier;
@@ -516,14 +520,22 @@ STARTRULE(term)
         PushEntry(stFound);
       }
       CallC(startId, funcOrMethod, nArgs);
+    } else { // Var
+      if(!stFound) cerror("Variable not found", startId, SPAN0);
+      PushEntry(stFound);
     }
   } else if(IsSymbol("(")) {
     ConsumeToken;
     Invoke(expression);
     ConsumeSymbol(")");
   } else if(IsSymbol("-") || IsSymbol("~")){
+    Span op = tok.value;
     ConsumeToken;
     Invoke(term);
+    if(SpanEqual(op, S("-")))
+      WriteStrNL("neg");
+    else
+      WriteStr("not");
   } else tokenerr;
 ENDRULE
 
@@ -565,6 +577,9 @@ ENDRULE
 
 STARTRULE(letStatement)
   ConsumeKeyword("let");
+
+  CheckStLookup(left,tok.value);
+
   ConsumeIdentifier;
 
   if(IsSymbol("[")) {
@@ -575,6 +590,8 @@ STARTRULE(letStatement)
 
   ConsumeSymbol("=");
   Invoke(expression);
+
+  PushEntry(left);
   ConsumeSymbol(";");
 ENDRULE
 
