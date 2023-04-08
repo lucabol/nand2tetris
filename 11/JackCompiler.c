@@ -221,9 +221,6 @@ char* EmitTokenizerXml(Span rest, Buffer* bufout) {
 
 /** END TOKENIZER **/
 
-#define SM do {
-#define EM } while(0)
-
 /** SYMBOL TABLE **/
 #define EXP 12
 #define LOADFACTOR 60
@@ -336,9 +333,9 @@ Span kindToSeg(Span k) {
 #define PopEntry(e)  Pop(e->kind, e->num)
 
 #define Arith(s)      SM WriteStrNL(#s); EM
-#define Label(s)      SM WriteStr("label "); WriteStrNL(#s); EM
-#define Goto(s)       SM WriteStr("goto "); WriteStrNL(#s); EM
-#define If(s)         SM WriteStr("if-goto "); WriteStrNL(#s); EM
+#define Label(n)      SM WriteStr("label "); WriteStr("L"); WriteSpan(SpanFromUlong(n)); WriteStrNL(""); EM
+#define Goto(n)       SM WriteStr("goto "); WriteStr("L"); WriteSpan(SpanFromUlong(n)); WriteStrNL("");EM
+#define IfGoto(n)     SM WriteStr("if-goto "); WriteStr("L"); WriteSpan(SpanFromUlong(n)); WriteStrNL("");EM
 
 #define Call(s,n)     SM WriteStr("call "); WriteStr(#s); WriteSpan(SpanFromUlong(n)); WriteStrNL(""); EM
 #define CallC(c, m,n) SM WriteStr("call "); WriteSpan(c); WriteStr("."); WriteSpan(m); \
@@ -389,6 +386,10 @@ static Span baseName;
 
 // TODO: need to refactor the whole thing to avoid all this static mess
 static int __sArgs = -1;
+static Span LastFuncName;
+static int Vars = 0;
+static int labelCount = 0;
+
 #define InvokeExpressionList \
   Invoke(expressionList); \
   int nArgs = __sArgs; (void)nArgs
@@ -457,11 +458,13 @@ STARTRULE(varDec)
   SaveVar; ConsumeKeyword("var");
   SaveType; ConsumeType;
   SaveSymb; ConsumeIdentifier;
+  Vars++;
 
   StAdd(StSubroutine);
 
   while(!IsSymbol(";")) {
     ConsumeSymbol(",");
+    Vars++;
     SaveSymb; ConsumeIdentifier;
     StAdd(StSubroutine);
   }
@@ -533,9 +536,9 @@ STARTRULE(term)
     ConsumeToken;
     Invoke(term);
     if(SpanEqual(op, S("-")))
-      WriteStrNL("neg");
+      Arith(neg);
     else
-      WriteStr("not");
+      Arith(not);
   } else tokenerr;
 ENDRULE
 
@@ -547,9 +550,9 @@ Span OpToStr(Span c) {
   OTS("/", "call Math.divide 2");
   OTS("&", "and");
   OTS("|", "or");
-  OTS("<", "less");
-  OTS(">", "more");
-  OTS("=", "equal");
+  OTS("<", "lt");
+  OTS(">", "gt");
+  OTS("=", "eq");
   return S("ERROR");
 }
 STARTRULE(expression)
@@ -591,7 +594,7 @@ STARTRULE(letStatement)
   ConsumeSymbol("=");
   Invoke(expression);
 
-  PushEntry(left);
+  PopEntry(left);
   ConsumeSymbol(";");
 ENDRULE
 
@@ -603,28 +606,48 @@ STARTRULE(ifStatement)
   Invoke(expression);
   ConsumeSymbol(")");
 
+  Arith(not);
+
+  int l1 = labelCount++;
+  int l2 = labelCount++;
+
+  IfGoto(l1);
+
   ConsumeSymbol("{");
   Invoke(statements);
   ConsumeSymbol("}");
+  Goto(l2);
 
+  Label(l1);
   if(IsKeyword("else")) {
      ConsumeToken;
      ConsumeSymbol("{");
      Invoke(statements);
      ConsumeSymbol("}");
   }
+  Label(l2);
 ENDRULE
 
 STARTRULE(whileStatement)
   ConsumeKeyword("while");
 
+  int l1 = labelCount++;
+  int l2 = labelCount++;
+
+  Label(l1);
   ConsumeSymbol("(");
   Invoke(expression);
   ConsumeSymbol(")");
 
+  Arith(not);
+  IfGoto(l2);
+
   ConsumeSymbol("{");
   Invoke(statements);
   ConsumeSymbol("}");
+  Goto(l1);
+
+  Label(l2);
 ENDRULE
 
 STARTRULE(doStatement)
@@ -656,16 +679,17 @@ ENDRULE
 STARTRULE(subroutineBody)
   ConsumeSymbol("{");
 
-  int vars = 0;
+  Vars = 0;
   while(IsKeyword("var")) {
-    vars++;
     Invoke(varDec);
   }
-  FunctionParams(vars);
+  FunctionName(LastFuncName);
+  FunctionParams(Vars);
 
   Invoke(statements);
   ConsumeSymbol("}");
 ENDRULE
+
 
 STARTRULE(subroutineDec)
 
@@ -679,7 +703,7 @@ STARTRULE(subroutineDec)
   } else
       tokenerr;
 
-  FunctionName(tok.value);
+  LastFuncName = tok.value;
   ConsumeIdentifier;
 
   ConsumeSymbol("(");

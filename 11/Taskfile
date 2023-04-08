@@ -29,7 +29,7 @@ function testst {      # Run symbol table test data
 
 function test {      # Run test data
   buildg
-  for v in ./Seven/Main ./Square/Square ./Square/Main ./Square/SquareGame
+  for v in ./Seven/Main ./ConvertToBin/Main # ./Square/Square ./Square/Main ./Square/SquareGame
   do
     ./JackCompiler ${v}.jack
     echo -n "${v} : "
