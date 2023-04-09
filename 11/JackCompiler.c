@@ -285,8 +285,8 @@ void STInit(SymbolTable* st) {
   *st = (SymbolTable) {0};
 }
 
-int16_t STCount(SymbolTable* st, Span kind) {
-  #define KK(_k) if(SpanEqual(kind, S(#_k))) return st-> _k ## Count++
+int16_t STCount(SymbolTable* st, Span kind, bool increase) {
+  #define KK(_k) if(SpanEqual(kind, S(#_k))) return increase ? st-> _k ## Count++ : st-> _k ## Count
   KK(static);KK(field);KK(var);KK(arg);
   return 0;
 }
@@ -297,7 +297,7 @@ int16_t STCount(SymbolTable* st, Span kind) {
 #define SaveKind Save(kind)
 #define SaveArg Span kind = S("arg")
 #define SaveVar Span kind = S("var")
-#define StAdd(_st) SM; char* err = STAdd(&_st, symb, type, kind, STCount(&_st, kind)); if(err) return err; EM
+#define StAdd(_st) SM; char* err = STAdd(&_st, symb, type, kind, STCount(&_st, kind, true)); if(err) return err; EM
 
 static SymbolTable StClass;
 static SymbolTable StSubroutine;
@@ -337,7 +337,7 @@ Span kindToSeg(Span k) {
 #define Goto(n)       SM WriteStr("goto "); WriteStr("L"); WriteSpan(SpanFromUlong(n)); WriteStrNL("");EM
 #define IfGoto(n)     SM WriteStr("if-goto "); WriteStr("L"); WriteSpan(SpanFromUlong(n)); WriteStrNL("");EM
 
-#define Call(s,n)     SM WriteStr("call "); WriteStr(#s); WriteSpan(SpanFromUlong(n)); WriteStrNL(""); EM
+#define Call(s,n)     SM WriteStr("call "); WriteStr(s); WriteStr(" "); WriteSpan(SpanFromUlong(n)); WriteStrNL(""); EM
 #define CallC(c, m,n) SM WriteStr("call "); WriteSpan(c); WriteStr("."); WriteSpan(m); \
   WriteStr(" "); WriteSpan(SpanFromUlong(n)); WriteStrNL(""); EM
 
@@ -384,11 +384,16 @@ static Span baseName;
 
 #define Invoke(_rule) SM char* error = compile ## _rule(bufout); if(error) return error; EM 
 
-// TODO: need to refactor the whole thing to avoid all this static mess
+// TODO: need to refactor. I decided not to pass any state between rules. Later I discover that some state
+// is needed. Instead of changing all function/macros signatures to pass the state around, I hacked it with static.
+// It works because the state is never used in recursive rules. An AST wouldn't require data as the state
+// is stored in the tree.
 static int __sArgs = -1;
-static Span LastFuncName;
-static int Vars = 0;
 static int labelCount = 0;
+static Span LastFuncType = {0};
+static Span LastFuncName = {0};
+static Span LastClassName = {0};
+static Span LastFuncReturn = {0};
 
 #define InvokeExpressionList \
   Invoke(expressionList); \
@@ -458,13 +463,11 @@ STARTRULE(varDec)
   SaveVar; ConsumeKeyword("var");
   SaveType; ConsumeType;
   SaveSymb; ConsumeIdentifier;
-  Vars++;
 
   StAdd(StSubroutine);
 
   while(!IsSymbol(";")) {
     ConsumeSymbol(",");
-    Vars++;
     SaveSymb; ConsumeIdentifier;
     StAdd(StSubroutine);
   }
@@ -507,10 +510,17 @@ STARTRULE(term)
       ConsumeToken;
       Invoke(expression);
       ConsumeSymbol("]");
-    } else if(IsSymbol("(")) { // parenthesised expr
+    } else if(IsSymbol("(")) { // Method call on this
       ConsumeToken;
+
+      Push(S("pointer"),0);
+      // Entry* thisp = STLookup(S("this"));
+      // if(!thisp) return "No 'this' pointer before method invocation.";
+      // PushEntry(thisp);
+
       InvokeExpressionList;
       ConsumeSymbol(")");
+      CallC(LastClassName,startId,nArgs + 1);
     } else if(IsSymbol(".")) { // func or method
       ConsumeToken;
       Span funcOrMethod = tok.value;
@@ -521,8 +531,10 @@ STARTRULE(term)
 
       if(stFound) { // method call, push the object first
         PushEntry(stFound);
+        CallC(stFound->type, funcOrMethod, nArgs + 1);
+      } else {
+        CallC(startId, funcOrMethod, nArgs);
       }
-      CallC(startId, funcOrMethod, nArgs);
     } else { // Var
       if(!stFound) cerror("Variable not found", startId, SPAN0);
       PushEntry(stFound);
@@ -662,6 +674,11 @@ STARTRULE(returnStatement)
   if(!IsSymbol(";"))
     Invoke(expression);
   ConsumeSymbol(";");
+
+  // void returning function must return something
+  if(SpanEqual(LastFuncReturn, S("void"))) {
+    Push(S("constant"),0);
+  }
   Return;
 ENDRULE
 
@@ -679,14 +696,32 @@ ENDRULE
 STARTRULE(subroutineBody)
   ConsumeSymbol("{");
 
-  Vars = 0;
   while(IsKeyword("var")) {
     Invoke(varDec);
   }
+
   FunctionName(LastFuncName);
-  FunctionParams(Vars);
+  int16_t vars = STCount(&StSubroutine, S("var"), false);
+  FunctionParams(vars);
+
+  if(SpanEqual(LastFuncType, S("method"))) {
+    STAdd(&StSubroutine, S("this"), LastClassName, S("arg"), STCount(&StSubroutine,S("arg"), true));
+    Push(S("argument"),0);
+    Pop(S("pointer"),0);
+  } else if(SpanEqual(LastFuncType, S("constructor"))) {
+    int16_t fields = STCount(&StClass, S("field"), false);
+    Push(S("constant"), fields);
+    Call("Memory.alloc",1);
+    Pop(S("pointer"),0);
+  }
 
   Invoke(statements);
+
+  // void returning functions might not contain a 'return statement'
+  if(SpanEqual(LastFuncReturn, S("void"))) {
+    Push(S("constant"),0);
+    Return;
+  }
   ConsumeSymbol("}");
 ENDRULE
 
@@ -695,9 +730,13 @@ STARTRULE(subroutineDec)
 
   // Reset subroutine symbol table when declaring new subroutine.
   STInit(&StSubroutine);
+  
+  LastFuncType = tok.value;
 
   ConsumeToken;
   
+  LastFuncReturn = tok.value;
+
   if(IsType || IsToken(keyword, "void")) {
     ConsumeToken;
   } else
@@ -722,14 +761,20 @@ STARTRULE(class)
   NextToken; // Just one class x file, trivial to extend to multiple ones
 
   ConsumeKeyword("class");
+
+  LastClassName = tok.value;
+
   ConsumeIdentifier;
   ConsumeSymbol("{");
 
+  // This is a translator (one pass). All declarations must come first to fill the symbol table
+  // before compiling subroutines.
+  while(IsKeyword("static") || IsKeyword("field"))
+    Invoke(classVarDec);
+
   while(!IsSymbol("}")) {
 
-    if(IsKeyword("static") || IsKeyword("field"))
-      Invoke(classVarDec);
-    else if(IsKeyword("constructor") || IsKeyword("function") || IsKeyword("method"))
+    if(IsKeyword("constructor") || IsKeyword("function") || IsKeyword("method"))
       Invoke(subroutineDec);
     else
       tokenerr;
