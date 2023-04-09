@@ -534,11 +534,14 @@ STARTRULE(term)
       Span funcOrMethod = tok.value;
       ConsumeIdentifier;
       ConsumeSymbol("(");
+
+      if(stFound)  // method call, push the object as the first parameter
+        PushEntry(stFound);
+
       InvokeExpressionList;
       ConsumeSymbol(")");
 
-      if(stFound) { // method call, push the object first
-        PushEntry(stFound);
+      if(stFound) { // method call, there is one parameter more (the object to call it on)
         CallC(stFound->type, funcOrMethod, nArgs + 1);
       } else {
         CallC(startId, funcOrMethod, nArgs);
@@ -727,7 +730,6 @@ STARTRULE(subroutineBody)
   FunctionParams(vars);
 
   if(SpanEqual(LastFuncType, S("method"))) {
-    STAdd(&StSubroutine, S("this"), LastClassName, S("arg"), STCount(&StSubroutine,S("arg"), true));
     Push(S("argument"),0);
     Pop(S("pointer"),0);
   } else if(SpanEqual(LastFuncType, S("constructor"))) {
@@ -766,6 +768,10 @@ STARTRULE(subroutineDec)
 
   LastFuncName = tok.value;
   ConsumeIdentifier;
+
+  if(SpanEqual(LastFuncType, S("method"))) {
+    STAdd(&StSubroutine, S("this"), LastClassName, S("arg"), STCount(&StSubroutine,S("arg"), true));
+  }
 
   ConsumeSymbol("(");
   Invoke(parameterList);
