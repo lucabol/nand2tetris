@@ -495,7 +495,7 @@ STARTRULE(term)
     Call("String.new", 1);
     for(Size i = 0; i < tok.value.len; i++) {
       Push(S("constant"), tok.value.ptr[i]);
-      Call("String.appendChar", 1);
+      Call("String.appendChar", 2);
     }
     ConsumeToken;
   } else if(IsKeyword("true") || IsKeyword("false") || IsKeyword("null") || IsKeyword("this")) {
@@ -508,7 +508,15 @@ STARTRULE(term)
 
     if(IsSymbol("[")) { // Array
       ConsumeToken;
+
+      // Push on the stack arr[i] which is *(arr + i)
+      if(!stFound) return "Array identifier not declared";
+      PushEntry(stFound);
       Invoke(expression);
+      Arith(add);
+      Pop(S("pointer"),1);
+      Push(S("that"),0);
+
       ConsumeSymbol("]");
     } else if(IsSymbol("(")) { // Method call on this
       ConsumeToken;
@@ -597,16 +605,30 @@ STARTRULE(letStatement)
 
   ConsumeIdentifier;
 
+  bool arraryAssignment = false;
+
   if(IsSymbol("[")) {
     ConsumeToken;
+
+    arraryAssignment = true;
+    PushEntry(left);
     Invoke(expression);
+    Arith(add); // expr2 top of stack
+  
     ConsumeSymbol("]");
   }
 
   ConsumeSymbol("=");
   Invoke(expression);
 
-  PopEntry(left);
+  if(arraryAssignment) {
+    Pop(S("temp"),0); // expr2 in temp0
+    Pop(S("pointer"),1); // arr + expr1 in pointer1 (that)
+    Push(S("temp"),0); // expr2 pushed
+    Pop(S("that"),0); // expr2 in value pointed by 'that' (*pointer1)
+  } else {
+    PopEntry(left);
+  }
   ConsumeSymbol(";");
 ENDRULE
 
