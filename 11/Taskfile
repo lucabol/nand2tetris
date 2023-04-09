@@ -30,7 +30,7 @@ function testst {      # Run symbol table test data
 function test {      # Run test data
   buildg
   for v in ./Seven/Main ./ConvertToBin/Main ./Square/Square ./Square/Main ./Square/SquareGame \
-    ./Average/Main ./Pong/Bat ./Pong/Ball ./Pong/Main ./Pong/PongGame
+    ./Average/Main ./Pong/Bat ./Pong/Ball ./Pong/Main ./Pong/PongGame ./ComplexArrays/Main
   do
     ./JackCompiler ${v}.jack
     echo -n "${v} : "
