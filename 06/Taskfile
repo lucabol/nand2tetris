@@ -7,10 +7,7 @@ function perf {     # Perf test
 }
 
 function lc {       # Count lines of code
-  wc -l assembler.c
-  wc -l rust/*.rs
-  wc -l java/*.java
-  wc -l python/*.py
+  cloc assembler.c rust java python
 }
 
 function check {    # Diff 2 assemblers

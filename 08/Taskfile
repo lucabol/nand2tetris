@@ -28,9 +28,7 @@ function check {
 }
 
 function lc {       # Count lines of code
-  wc -l vm.c
-  wc -l rust/*.rs
-  wc -l java/*.java
+  cloc vm.c rust java
 }
 
 function perf {   # Perf test

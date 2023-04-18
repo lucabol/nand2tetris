@@ -38,21 +38,19 @@ function test {      # Run test data
 }
 
 function lc {       # Count lines of code
-  wc -l JackCompiler.c
-  wc -l rust/*.rs
-  wc -l java/*.java
+  cloc JackCompiler.c java rust
 }
 
 function perf {   # Perf test
-  hyperfine --warmup 5 "./JackCompiler_cl FunctionCalls/FibonacciElement/*.JackCompiler" "./JackCompiler_mg FunctionCalls/FibonacciElement/*.JackCompiler" "./rustJackCompiler FunctionCalls/FibonacciElement" "java JackCompilertranslator FunctionCalls/FibonacciElement"
+  hyperfine --warmup 5 "./JackCompiler_cl Pong/*.jack" "./rustJackCompiler Pong" "java JackComplier Pong"
 }
 
 function memrust {    # Test memory consumption
-  valgrind --tool=massif --massif-out-file=rustJackCompiler.massif --stacks=yes  ./rustJackCompiler FunctionCalls/FibonacciElement
+  valgrind --tool=massif --massif-out-file=rustJackCompiler.massif --stacks=yes  ./rustJackCompiler Pong
   ms_print rustJackCompiler.massif | bat
 }
 function memc {    # Test memory consumption
-  valgrind --tool=massif --massif-out-file=JackCompiler_cl.massif --stacks=yes  ./JackCompiler_cl FunctionCalls/FibonacciElement/*.JackCompiler
+  valgrind --tool=massif --massif-out-file=JackCompiler_cl.massif --stacks=yes  ./JackCompiler_cl Pong/*.jack
   ms_print JackCompiler_cl.massif | bat
 }
 function help {     # Prints help
