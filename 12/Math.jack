@@ -9,12 +9,39 @@
  */
 class Math {
 
+    static Array twoToThe;
+
     /** Initializes the library. */
     function void init() {
+      var int x, i;
+
+      let twoToThe = Array.new(16);
+      let x = 1;
+      let i = 0;
+
+      while(i < 16) {
+        let twoToThe[i] = x;
+        let x = x + x;
+        let i = i + 1;
+      }
+      return;
+    }
+
+    function boolean bit(int x,int i) {
+      if((twoToThe[i] & x) = 0) {
+        return false;
+      } else {
+        return true;
+      }
     }
 
     /** Returns the absolute value of x. */
     function int abs(int x) {
+      if(x > 0) {
+        return x;
+      } else {
+        return -x;
+      }
     }
 
     /** Returns the product of x and y. 
@@ -23,6 +50,20 @@ class Math {
      *  the Jack expressions x*y and multiply(x,y) return the same value.
      */
     function int multiply(int x, int y) {
+      var int sum, shiftedx, i;
+
+      let sum = 0;
+      let shiftedx = x;
+      let i = 0;
+
+      while(i < 16) {
+        if(Math.bit(y,i)) {
+          let sum = sum + shiftedx;
+        }
+        let shiftedx = shiftedx + shiftedx;
+        let i = i + 1;
+      }
+      return sum;
     }
 
     /** Returns the integer part of x/y.
@@ -31,17 +72,66 @@ class Math {
      *  the Jack expressions x/y and divide(x,y) return the same value.
      */
     function int divide(int x, int y) {
+      var int ax, ay, aret, q;
+
+      let ax = Math.abs(x);
+      let ay = Math.abs(y);
+
+      if((ay > ax) | (ay < 0)) {
+        return 0;
+      }
+
+      let q = Math.divide(ax, 2 * ay);
+
+      if((ax - (2 * q * ay)) < ay) {
+        let aret = 2 * q;
+      } else {
+        let aret = 2 * q + 1;
+      }
+
+      if(((x > 0) & (y > 0)) | ((x < 0) & (y < 0))) {
+        return aret;
+      } else {
+        return -aret;
+      }
     }
 
     /** Returns the integer part of the square root of x. */
     function int sqrt(int x) {
+      var int y, j, s, ss;
+
+      let y = 0;
+      let j = 7;
+
+      while(~(j < 0)) {
+        let s = y + twoToThe[j];
+        let ss = s * s;
+
+        if(~(ss > x) & (ss > 0)) {
+          let y = s;
+        }
+
+        let j = j - 1;
+      }
+
+      return y;
     }
 
     /** Returns the greater number. */
     function int max(int a, int b) {
+      if(a > b) {
+        return a;
+      } else {
+        return b;
+      }
     }
 
     /** Returns the smaller number. */
     function int min(int a, int b) {
+      if(a < (b + 1)) {
+        return a;
+      } else {
+        return b;
+      }
     }
 }
