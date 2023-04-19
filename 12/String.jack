@@ -12,53 +12,130 @@
  */
 class String {
 
+    field Array chars;
+    field int len, maxLen;
+
     /** constructs a new empty string with a maximum length of maxLength
      *  and initial length of 0. */
     constructor String new(int maxLength) {
+      if(maxLength < 1) {
+        let maxLength = 1;
+      }
+      let chars = Array.new(maxLength);
+      let maxLen = maxLength;
+      let len = 0;
+      return this;
     }
 
     /** Disposes this string. */
     method void dispose() {
+      do chars.dispose();
+      return;
     }
 
     /** Returns the current length of this string. */
     method int length() {
+      return len;
     }
 
     /** Returns the character at the j-th location of this string. */
     method char charAt(int j) {
+      return chars[j];
     }
 
     /** Sets the character at the j-th location of this string to c. */
     method void setCharAt(int j, char c) {
+      let chars[j] = c;
+      return;
     }
 
     /** Appends c to this string's end and returns this string. */
     method String appendChar(char c) {
+      let chars[len] = c;
+      let len = len + 1;
+      return this;
     }
 
     /** Erases the last character from this string. */
     method void eraseLastChar() {
+      let len = len - 1;
+      return;
     }
 
     /** Returns the integer value of this string, 
      *  until a non-digit character is detected. */
     method int intValue() {
+      var int val, i, d, c;
+      var boolean neg;
+
+      let val = 0;
+      let i = 0;
+      let neg = false;
+      
+      if(chars[0] = 45) {
+        let i = i + 1;
+        let neg = true;
+      }
+
+      while(i < len) {
+        let c = charAt(i);
+        if((c < 48) | (c > 57)) {
+          return val;
+        }
+        let d = c - 48; 
+        let val = (val * 10) + d;
+        let i = i + 1;
+      }
+
+      if(neg) {
+        return -val;
+      } else {
+        return val;
+      }
+
+    }
+
+    method void setIntH(int val) {
+      var int div, digit, c;
+
+      let div   = val / 10;
+      let digit = val - (10 * div);
+      let c = 48 + digit;
+
+      if(~(val < 10)) {
+        do setIntH(div);
+      }
+
+      do appendChar(c);
+      return;
     }
 
     /** Sets this string to hold a representation of the given value. */
     method void setInt(int val) {
+        let chars = Array.new(10);
+        let len = 0;
+        let maxLen = 10;
+
+        if(val < 0) {
+          do appendChar(45);
+          let val = -val;
+        }
+        do setIntH(val);
+        return;
     }
 
     /** Returns the new line character. */
     function char newLine() {
+      return 128;
     }
 
     /** Returns the backspace character. */
     function char backSpace() {
+      return 129;
     }
 
     /** Returns the double quote (") character. */
     function char doubleQuote() {
+      return 34;
     }
 }
