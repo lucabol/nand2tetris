@@ -19,6 +19,8 @@ class Memory {
 
       let heapBase = 2048;
       let free = heapBase;
+      let free[0] = 24500 - 2048; // total mem - starting address
+      let free[1] = 0;
       return;
     }
 
@@ -37,16 +39,40 @@ class Memory {
      *  a reference to its base address. */
     function int alloc(int size) {
       var Array block;
+      var int newSize;
 
       let block = free;
-      let free  = free + size;
 
-      return block;
+      while(~(block = 0) & (block[0] < (size + 2)) ) {
+        let block = block[1];
+      }
+
+      // Not found
+      if(block = 0) {
+        return 0;
+      }
+
+      // Return the last part of the memory block, the pointer (block[1]) stays the same.
+      let newSize  = block[0] - size - 1;
+      let block[0] = newSize;
+      let block    = block + newSize;
+      let block[0] = size + 1;
+
+      return block + 1;
     }
 
     /** De-allocates the given object (cast as an array) by making
      *  it available for future allocations. */
     function void deAlloc(Array o) {
+      var Array block;
+      var int size;
+
+      let o       = o - 1;
+      let size    = o[0];
+      let o[0]    = size - 1;
+      let o[1]    = free;
+      let free    = o;
+
       return;
     }    
 }
