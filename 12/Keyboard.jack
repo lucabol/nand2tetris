@@ -37,6 +37,7 @@ class Keyboard {
      * F1 - F12 = 141 - 152
      */
     function char keyPressed() {
+      
       return Memory.peek(KBD);
     }
 
@@ -78,7 +79,7 @@ class Keyboard {
           return str;
         } else {
             if(c = String.backSpace()){
-              if(~(str.length() = 0) {
+              if(~(str.length() = 0)) {
                 do str.eraseLastChar();
               }
           } else {
