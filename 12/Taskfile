@@ -13,6 +13,9 @@ function build {    # Build stuff
 
   cp Memory.jack MemoryTest/MemoryDiag/
   ../../tools/JackCompiler.sh MemoryTest/MemoryDiag
+
+  cp *.jack Pong/
+  ../../tools/JackCompiler.sh Pong
 }
 
 function run {    # Runs something

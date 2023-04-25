@@ -10,11 +10,11 @@ class Sys {
 
     /** Performs all the initializations required by the OS. */
     function void init() {
-      do Math.init();
-      do Output.init();
       do Memory.init();
       do Screen.init();
       do Keyboard.init();
+      do Math.init();
+      do Output.init();
       do Main.main();
       do Sys.halt();
       return;
